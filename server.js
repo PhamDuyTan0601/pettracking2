@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 require("dotenv").config();
+const path = require("path");
 
 const app = express();
 
@@ -31,12 +32,11 @@ app.get("/", (req, res) => {
   });
 });
 
-const path = require("path");
-
 // Serve React build folder
 app.use(express.static(path.join(__dirname, "build")));
 
-app.get("*", (req, res) => {
+// Wildcard route cho SPA React (sửa lỗi '*')
+app.get("/*", (req, res) => {
   res.sendFile(path.join(__dirname, "build", "index.html"));
 });
 
