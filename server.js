@@ -6,7 +6,7 @@ const path = require("path");
 
 const app = express();
 
-// CORS cho production - CHO PHÉP TẤT CẢ DOMAIN
+// CORS cho production - cho phép tất cả domain
 app.use(
   cors({
     origin: "*",
@@ -17,38 +17,38 @@ app.use(
 
 app.use(express.json());
 
-// Routes
+// ===== API Routes =====
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/pets", require("./routes/petRoutes"));
 app.use("/api/petData", require("./routes/petDataRoutes"));
 
-// Health check route
-app.get("/", (req, res) => {
+// ===== Health Check Route =====
+app.get("/health", (req, res) => {
   res.json({
-    message: "Pet Tracker API is running on Render!",
+    message: "✅ Pet Tracker API is running on Render!",
     timestamp: new Date().toISOString(),
     database:
       mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
   });
 });
 
-// Serve React build folder
+// ===== Serve React build folder =====
 app.use(express.static(path.join(__dirname, "build")));
 
-// Wildcard route cho SPA React (sửa lỗi '*')
-app.get("/*", (req, res) => {
+// ⚠️ FIX: Wildcard route cho React SPA (Express v5 chỉ chấp nhận '*')
+app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "build", "index.html"));
 });
 
-// MongoDB connection
+// ===== MongoDB Connection =====
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected Successfully"))
-  .catch((err) => console.log("❌ MongoDB Connection Error:", err));
+  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
 
 module.exports = app;
