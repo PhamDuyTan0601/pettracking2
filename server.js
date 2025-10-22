@@ -1,54 +1,62 @@
 const express = require("express");
 const mongoose = require("mongoose");
-const cors = require("cors");
-require("dotenv").config();
 const path = require("path");
+require("dotenv").config();
 
 const app = express();
 
-// CORS cho production
-app.use(
-  cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "userId", "Authorization"],
-  })
-);
-
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
-// ===== API Routes =====
+// Routes
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/pets", require("./routes/petRoutes"));
-app.use("/api/petData", require("./routes/petDataRoutes"));
+app.use("/api/pet-data", require("./routes/petDataRoutes"));
+app.use("/api/qr", require("./routes/qrRoutes"));
+app.use("/api/wifi-devices", require("./routes/wifiDeviceRoutes")); // THÊM DÒNG NÀY
 
-// ===== Health Check =====
-app.get("/health", (req, res) => {
-  res.json({
-    message: "✅ Pet Tracker API is running on Render!",
+// QR Code generation - CẬP NHẬT ĐỂ HỖ TRỢ WIFI
+app.get("/api/qr/generate/:deviceId", (req, res) => {
+  const { deviceId } = req.params;
+
+  const qrData = {
+    type: "pet_tracker_wifi",
+    deviceId: deviceId,
+    deviceName: `PetTracker_${deviceId}`,
+    wifiConfig: {
+      ssid: "PetTracker_Network",
+      password: "pet123456",
+      encryption: "WPA2",
+    },
+    serverUrl: `${req.protocol}://${req.get("host")}`,
+    pairingUrl: `${req.protocol}://${req.get("host")}/api/wifi-devices/pair`,
     timestamp: new Date().toISOString(),
-    database:
-      mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+  };
+
+  res.json({
+    success: true,
+    qrData: qrData,
   });
 });
 
-// ===== Serve React SPA =====
-app.use(express.static(path.join(__dirname, "build")));
-
-// Wildcard route cho React SPA (Express 5 / Node 25)
-app.get("/:path(*)", (req, res) => {
-  res.sendFile(path.join(__dirname, "build", "index.html"));
+// Web routes
+app.get("/web", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// ===== MongoDB Connection =====
+app.get("/web/pair/:deviceId", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+const PORT = process.env.PORT || 10000;
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected Successfully"))
-  .catch((err) => console.error("❌ MongoDB Connection Error:", err));
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-});
+  .then(() => {
+    console.log("Connected to MongoDB");
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => console.error("MongoDB connection error:", err));
 
 module.exports = app;
