@@ -1,50 +1,27 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
+const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
 
 const auth = async (req, res, next) => {
   try {
-    const authHeader = req.header("Authorization");
-    if (!authHeader) {
-      return res.status(401).json({
-        success: false,
-        message: "No token provided. Please login again.",
-      });
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "No token provided" });
     }
 
-    // Lấy token (bỏ prefix 'Bearer ')
-    const token = authHeader.replace("Bearer ", "").trim();
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, SECRET_KEY);
 
-    // Giải mã token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Hỗ trợ nhiều kiểu field khác nhau (id, userId, _id)
-    const userId = decoded.userId || decoded.id || decoded._id || decoded.user;
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid token payload",
-      });
-    }
-
-    // Tìm user trong DB
-    const user = await User.findById(userId);
+    const user = await User.findById(decoded.id);
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
+      return res.status(401).json({ message: "Invalid token user" });
     }
 
-    // Lưu thông tin user vào request
     req.user = user;
     next();
   } catch (error) {
     console.error("Auth error:", error);
-    res.status(401).json({
-      success: false,
-      message: "Authentication failed",
-      error: error.message,
-    });
+    res.status(401).json({ message: "Token invalid or expired" });
   }
 };
 
