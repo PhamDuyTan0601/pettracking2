@@ -14,7 +14,8 @@ const auth = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, SECRET_KEY);
 
-    const user = await User.findById(decoded.id);
+    // SỬA LỖI: decoded.userId thay vì decoded.id
+    const user = await User.findById(decoded.userId);
     if (!user) {
       return res
         .status(401)
