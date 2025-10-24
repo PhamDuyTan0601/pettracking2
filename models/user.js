@@ -19,9 +19,7 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
-    // 🔑 Thêm 2 trường này để reset password
-    resetPasswordToken: { type: String },
-    resetPasswordExpires: { type: Date },
+    // ĐÃ BỎ resetPasswordToken và resetPasswordExpires
   },
   {
     timestamps: true,
