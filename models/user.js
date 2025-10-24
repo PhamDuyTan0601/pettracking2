@@ -19,13 +19,16 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
+    // 🔑 Thêm 2 trường này để reset password
+    resetPasswordToken: { type: String },
+    resetPasswordExpires: { type: Date },
   },
   {
     timestamps: true,
   }
 );
 
-// Hash password before saving
+// ✅ Hash password tự động trước khi lưu
 userSchema.pre("save", async function (next) {
   if (this.isModified("password")) {
     this.password = await bcrypt.hash(this.password, 10);
@@ -33,7 +36,7 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-// Compare password method
+// ✅ So sánh mật khẩu khi đăng nhập
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
