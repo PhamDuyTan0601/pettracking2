@@ -29,6 +29,7 @@ app.use(express.json());
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/pets", require("./routes/petRoutes"));
 app.use("/api/petData", require("./routes/petDataRoutes"));
+app.use("/api/devices", require("./routes/deviceRoutes"));
 
 // ================================
 // 💓 HEALTH CHECK
