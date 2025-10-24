@@ -1,52 +1,63 @@
 const express = require("express");
 const { body, validationResult } = require("express-validator");
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 const User = require("../models/user");
 
 const router = express.Router();
-
-const JWT_SECRET = process.env.JWT_SECRET || "mysecretkey";
+const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
 const RESET_SECRET = process.env.RESET_SECRET || "resetSecretKey";
-const FRONTEND_URL =
-  process.env.FRONTEND_URL || "https://pettracking.vercel.app";
 
-// ==========================
-// 🧾 REGISTER
-// ==========================
+// ==============================
+// 🧩 Register user
+// ==============================
 router.post(
   "/register",
   [
-    body("name").notEmpty(),
-    body("email").isEmail(),
-    body("password").isLength({ min: 6 }),
+    body("name").notEmpty().withMessage("Name is required"),
+    body("email").isEmail().withMessage("Valid email is required"),
+    body("password")
+      .isLength({ min: 6 })
+      .withMessage("Password must be at least 6 characters"),
   ],
   async (req, res) => {
     try {
       const errors = validationResult(req);
-      if (!errors.isEmpty())
-        return res.status(400).json({ errors: errors.array() });
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
 
       const { name, email, password } = req.body;
-
-      const existing = await User.findOne({ email });
-      if (existing)
-        return res.status(400).json({ message: "Email already registered" });
-
+      const existingUser = await User.findOne({ email });
+      if (existingUser) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Email already registered" });
+      }
       const user = new User({ name, email, password });
+
       await user.save();
 
-      res.json({ success: true, message: "User registered successfully" });
-    } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(201).json({
+        success: true,
+        message: "User registered successfully",
+        user: { id: user._id, name: user.name, email: user.email },
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        message: "Server error",
+        error: error.message,
+      });
     }
   }
 );
 
-// ==========================
-// 🔐 LOGIN
-// ==========================
+// ==============================
+// 🔑 Login user
+// ==============================
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -56,55 +67,46 @@ router.post("/login", async (req, res) => {
         .status(400)
         .json({ success: false, message: "User not found" });
 
-    const isMatch = await user.comparePassword(password);
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
       return res
         .status(400)
         .json({ success: false, message: "Invalid password" });
 
-    const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "7d" });
-
+    const token = jwt.sign({ userId: user._id }, SECRET_KEY, {
+      expiresIn: "7d",
+    });
     res.json({
       success: true,
       message: "Login successful",
       token,
       user: { id: user._id, name: user.name, email: user.email },
     });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ==========================
-// 🧠 FORGOT PASSWORD
-// ==========================
+// ==============================
+// 🔁 Forgot Password (Send reset link via Gmail)
+// ==============================
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email)
-      return res
-        .status(400)
-        .json({ success: false, message: "Email is required" });
-
     const user = await User.findOne({ email });
     if (!user)
       return res
-        .status(400)
-        .json({ success: false, message: "No account found" });
+        .status(404)
+        .json({ success: false, message: "Email not found" });
 
-    // tạo token reset (hết hạn sau 15 phút)
+    // Tạo reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(resetToken)
-      .digest("hex");
-    user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpires = Date.now() + 15 * 60 * 1000;
+    const resetTokenHash = await bcrypt.hash(resetToken, 10);
+    user.resetPasswordToken = resetTokenHash;
+    user.resetPasswordExpires = Date.now() + 15 * 60 * 1000; // 15 phút
     await user.save();
 
-    const resetLink = `${FRONTEND_URL}/reset-password/${resetToken}`;
-
-    // gửi email bằng nodemailer
+    // Gửi email bằng Nodemailer
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -113,55 +115,61 @@ router.post("/forgot-password", async (req, res) => {
       },
     });
 
+    const resetLink = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
     await transporter.sendMail({
-      from: `"Pet Tracking" <${process.env.EMAIL_USER}>`,
+      from: `"Pet Tracker" <${process.env.EMAIL_USER}>`,
       to: user.email,
-      subject: "Reset your password",
+      subject: "Password Reset Request",
       html: `
-        <p>Hello ${user.name},</p>
-        <p>Click the link below to reset your password:</p>
+        <h3>Hello ${user.name},</h3>
+        <p>Click the link below to reset your password (valid for 15 minutes):</p>
         <a href="${resetLink}" target="_blank">${resetLink}</a>
-        <p>This link will expire in 15 minutes.</p>
       `,
     });
 
-    res.json({ success: true, message: "Reset link sent to your email" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.json({
+      success: true,
+      message: "Reset password email sent successfully",
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ==========================
-// 🔑 RESET PASSWORD
-// ==========================
+// ==============================
+// 🔒 Reset Password (Verify token)
+// ==============================
 router.post("/reset-password/:token", async (req, res) => {
   try {
+    const { token } = req.params;
     const { password } = req.body;
-    const resetToken = req.params.token;
 
-    const hashedToken = crypto
-      .createHash("sha256")
-      .update(resetToken)
-      .digest("hex");
-
-    const user = await User.findOne({
-      resetPasswordToken: hashedToken,
+    const users = await User.find({
       resetPasswordExpires: { $gt: Date.now() },
     });
+    const user = users.find((u) =>
+      bcrypt.compareSync(token, u.resetPasswordToken)
+    );
 
     if (!user)
       return res
         .status(400)
         .json({ success: false, message: "Invalid or expired token" });
 
-    user.password = password;
+    user.password = await bcrypt.hash(password, 10);
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
 
-    res.json({ success: true, message: "Password reset successful" });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.json({
+      success: true,
+      message: "Password reset successful. You can now log in.",
+    });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
