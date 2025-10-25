@@ -1,7 +1,6 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const http = require("http"); // ⚠️ THÊM DÒNG NÀY
 require("dotenv").config();
 
 const app = express();
@@ -11,11 +10,7 @@ const app = express();
 // ================================
 app.use(
   cors({
-    origin: [
-      "https://pettracking.vercel.app",
-      "http://localhost:3000",
-      "*", // ⚠️ CHO PHÉP ESP32 KẾT NỐI
-    ],
+    origin: "*", // ⚠️ CHO PHÉP TẤT CẢ ESP32 KẾT NỐI
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization", "userId"],
     credentials: true,
@@ -25,7 +20,7 @@ app.use(
 app.use(express.json());
 
 // ================================
-// 🔗 ROUTES (GIỮ NGUYÊN)
+// 🔗 ROUTES
 // ================================
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/pets", require("./routes/petRoutes"));
@@ -37,7 +32,7 @@ app.use("/api/devices", require("./routes/deviceRoutes"));
 // ================================
 app.get("/", (req, res) => {
   res.json({
-    message: "Pet Tracker API is running on Render!",
+    message: "Pet Tracker API is running on Render! (HTTP)",
     timestamp: new Date().toISOString(),
     database:
       mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
@@ -53,19 +48,12 @@ mongoose
   .catch((err) => console.log("❌ MongoDB Connection Error:", err));
 
 // ================================
-// 🚀 START SERVER - QUAN TRỌNG: THÊM HTTP
+// 🚀 START SERVER - CHỈ CẦN 1 SERVER
 // ================================
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000; // ⚠️ DÙNG PORT 10000
 
-// ⚠️ THÊM ĐOẠN NÀY - TẠO HTTP SERVER
-const httpServer = http.createServer(app);
-httpServer.listen(80, () => {
-  console.log("🚀 HTTP Server running on port 80 (for ESP32)");
-});
-
-// GIỮ NGUYÊN SERVER HIỆN TẠI
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
+  console.log(`🚀 HTTP Server running on port ${PORT} (for ESP32)`);
 });
 
 module.exports = app;
