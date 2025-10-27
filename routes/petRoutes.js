@@ -59,4 +59,40 @@ router.post(
   }
 );
 
+// 🐾 DELETE pet - THÊM ENDPOINT NÀY
+router.delete("/:id", auth, async (req, res) => {
+  try {
+    const pet = await Pet.findById(req.params.id);
+
+    if (!pet) {
+      return res.status(404).json({
+        success: false,
+        message: "Pet not found",
+      });
+    }
+
+    // Check if user owns the pet
+    if (pet.owner.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. You can only delete your own pets",
+      });
+    }
+
+    // Delete the pet
+    await Pet.findByIdAndDelete(req.params.id);
+
+    res.json({
+      success: true,
+      message: "Pet deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete pet error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while deleting pet",
+    });
+  }
+});
+
 module.exports = router;
