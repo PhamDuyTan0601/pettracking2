@@ -3,12 +3,13 @@ const { body, validationResult } = require("express-validator");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const User = require("../models/user");
+const auth = require("../middleware/authMiddleware"); // ✅ Bắt buộc import
 
 const router = express.Router();
 const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
 
 // ==============================
-// 🧩 Register user - ĐÃ CẬP NHẬT
+// 🧩 Register user
 // ==============================
 router.post(
   "/register",
@@ -21,7 +22,7 @@ router.post(
     body("phoneNumber")
       .optional()
       .isMobilePhone()
-      .withMessage("Số điện thoại không hợp lệ"), // ✅ THÊM
+      .withMessage("Số điện thoại không hợp lệ"),
   ],
   async (req, res) => {
     try {
@@ -30,7 +31,8 @@ router.post(
         return res.status(400).json({ success: false, errors: errors.array() });
       }
 
-      const { name, email, password, phoneNumber } = req.body; // ✅ THÊM phoneNumber
+      const { name, email, password, phoneNumber } = req.body;
+
       const existingUser = await User.findOne({ email });
       if (existingUser) {
         return res
@@ -38,8 +40,7 @@ router.post(
           .json({ success: false, message: "Email already registered" });
       }
 
-      const user = new User({ name, email, password, phoneNumber }); // ✅ THÊM phoneNumber
-
+      const user = new User({ name, email, password, phoneNumber });
       await user.save();
 
       res.status(201).json({
@@ -49,7 +50,7 @@ router.post(
           id: user._id,
           name: user.name,
           email: user.email,
-          phoneNumber: user.phoneNumber, // ✅ THÊM
+          phoneNumber: user.phoneNumber,
         },
       });
     } catch (error) {
@@ -63,26 +64,30 @@ router.post(
 );
 
 // ==============================
-// 🔑 Login user - ĐÃ CẬP NHẬT
+// 🔑 Login user
 // ==============================
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+
     const user = await User.findOne({ email });
-    if (!user)
+    if (!user) {
       return res
         .status(400)
         .json({ success: false, message: "User not found" });
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch)
+    if (!isMatch) {
       return res
         .status(400)
         .json({ success: false, message: "Invalid password" });
+    }
 
     const token = jwt.sign({ userId: user._id }, SECRET_KEY, {
       expiresIn: "7d",
     });
+
     res.json({
       success: true,
       message: "Login successful",
@@ -91,7 +96,7 @@ router.post("/login", async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        phoneNumber: user.phoneNumber, // ✅ THÊM
+        phoneNumber: user.phoneNumber,
       },
     });
   } catch (error) {
@@ -100,8 +105,7 @@ router.post("/login", async (req, res) => {
 });
 
 // ==============================
-// 📞 Cập nhật thông tin user (bao gồm số điện thoại) - ✅ THÊM MỚI
-// ==============================
+// 📞 Update profile (including phoneNumber)
 router.put(
   "/profile",
   auth,
@@ -134,23 +138,20 @@ router.put(
         user,
       });
     } catch (error) {
-      res.status(500).json({ success: false, message: "Lỗi server" });
+      res.status(500).json({ success: false, message: "Server error" });
     }
   }
 );
 
 // ==============================
-// 👤 Lấy thông tin user hiện tại - ✅ THÊM MỚI
+// 👤 Get current user profile
 // ==============================
 router.get("/profile", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select("-password");
-    res.json({
-      success: true,
-      user,
-    });
+    res.json({ success: true, user });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Lỗi server" });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
