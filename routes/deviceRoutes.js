@@ -1,6 +1,7 @@
 const express = require("express");
 const Device = require("../models/device");
 const Pet = require("../models/pet");
+const User = require("../models/user");
 const auth = require("../middleware/authMiddleware");
 
 const router = express.Router();
@@ -111,6 +112,56 @@ router.get("/my-devices", auth, async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Get devices error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// ==============================
+// 🆕 ENDPOINT MỚI: ESP32 lấy thông tin cấu hình (petId, phoneNumber)
+// ==============================
+router.get("/config/:deviceId", async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    console.log("🔧 ESP32 requesting config for device:", deviceId);
+
+    const device = await Device.findOne({
+      deviceId,
+      isActive: true,
+    })
+      .populate("petId", "name species")
+      .populate("owner", "name phone");
+
+    if (!device) {
+      console.log("❌ Device not found:", deviceId);
+      return res.status(404).json({
+        success: false,
+        message: "Device not registered or not active",
+      });
+    }
+
+    console.log(
+      "✅ Sending config to ESP32:",
+      deviceId,
+      "Pet:",
+      device.petId.name
+    );
+
+    res.json({
+      success: true,
+      deviceId: device.deviceId,
+      petId: device.petId._id,
+      petName: device.petId.name,
+      phoneNumber: device.owner.phone, // Số điện thoại từ owner
+      ownerName: device.owner.name,
+      serverUrl: "https://pettracking2.onrender.com",
+      updateInterval: 30000, // 30 giây
+    });
+  } catch (error) {
+    console.error("❌ Get config error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
