@@ -28,14 +28,24 @@ app.use("/api/petData", require("./routes/petDataRoutes"));
 app.use("/api/devices", require("./routes/deviceRoutes"));
 
 // ================================
-// 💓 HEALTH CHECK
+// 💓 HEALTH CHECK - THÊM ENDPOINT NÀY
 // ================================
-app.get("/", (req, res) => {
-  res.json({
-    message: "Pet Tracker API is running on Render! (HTTP)",
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    message: "Server is healthy",
     timestamp: new Date().toISOString(),
     database:
       mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+  });
+});
+
+app.get("/", (req, res) => {
+  res.json({
+    message: "Pet Tracker API is running on Render!",
+    timestamp: new Date().toISOString(),
+    database:
+      mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
@@ -45,15 +55,39 @@ app.get("/", (req, res) => {
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected Successfully"))
-  .catch((err) => console.log("❌ MongoDB Connection Error:", err));
+  .catch((err) => {
+    console.log("❌ MongoDB Connection Error:", err);
+    process.exit(1); // Thoát nếu không kết nối được database
+  });
 
 // ================================
-// 🚀 START SERVER - CHỈ CẦN 1 SERVER
+// 🚀 START SERVER - SỬA LẠI PHẦN NÀY
 // ================================
-const PORT = process.env.PORT || 10000; // ⚠️ DÙNG PORT 10000
+const PORT = process.env.PORT || 10000;
 
-app.listen(PORT, () => {
-  console.log(`🚀 HTTP Server running on port ${PORT} (for ESP32)`);
+// Đảm bảo server lắng nghe trên tất cả interfaces
+const server = app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 Local: http://localhost:${PORT}`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+});
+
+// Xử lý lỗi khởi động server
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.log(`❌ Port ${PORT} is already in use`);
+  } else {
+    console.log("❌ Server error:", err);
+  }
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully");
+  server.close(() => {
+    console.log("Process terminated");
+  });
 });
 
 module.exports = app;
