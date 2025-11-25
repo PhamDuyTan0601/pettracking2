@@ -19,6 +19,14 @@ const userSchema = new mongoose.Schema(
       required: true,
       minlength: 6,
     },
+
+    // ✅ THÊM MỚI: Số điện thoại
+    phoneNumber: {
+      type: String,
+      trim: true,
+      default: "", // Cho phép để trống
+    },
+
     // ĐÃ BỎ resetPasswordToken và resetPasswordExpires
   },
   {

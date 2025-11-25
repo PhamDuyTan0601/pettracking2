@@ -8,7 +8,7 @@ const router = express.Router();
 const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
 
 // ==============================
-// 🧩 Register user
+// 🧩 Register user - ĐÃ CẬP NHẬT
 // ==============================
 router.post(
   "/register",
@@ -18,6 +18,10 @@ router.post(
     body("password")
       .isLength({ min: 6 })
       .withMessage("Password must be at least 6 characters"),
+    body("phoneNumber")
+      .optional()
+      .isMobilePhone()
+      .withMessage("Số điện thoại không hợp lệ"), // ✅ THÊM
   ],
   async (req, res) => {
     try {
@@ -26,21 +30,27 @@ router.post(
         return res.status(400).json({ success: false, errors: errors.array() });
       }
 
-      const { name, email, password } = req.body;
+      const { name, email, password, phoneNumber } = req.body; // ✅ THÊM phoneNumber
       const existingUser = await User.findOne({ email });
       if (existingUser) {
         return res
           .status(400)
           .json({ success: false, message: "Email already registered" });
       }
-      const user = new User({ name, email, password });
+
+      const user = new User({ name, email, password, phoneNumber }); // ✅ THÊM phoneNumber
 
       await user.save();
 
       res.status(201).json({
         success: true,
         message: "User registered successfully",
-        user: { id: user._id, name: user.name, email: user.email },
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phoneNumber: user.phoneNumber, // ✅ THÊM
+        },
       });
     } catch (error) {
       res.status(500).json({
@@ -53,7 +63,7 @@ router.post(
 );
 
 // ==============================
-// 🔑 Login user
+// 🔑 Login user - ĐÃ CẬP NHẬT
 // ==============================
 router.post("/login", async (req, res) => {
   try {
@@ -77,10 +87,70 @@ router.post("/login", async (req, res) => {
       success: true,
       message: "Login successful",
       token,
-      user: { id: user._id, name: user.name, email: user.email },
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phoneNumber: user.phoneNumber, // ✅ THÊM
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ==============================
+// 📞 Cập nhật thông tin user (bao gồm số điện thoại) - ✅ THÊM MỚI
+// ==============================
+router.put(
+  "/profile",
+  auth,
+  [
+    body("phoneNumber")
+      .optional()
+      .isMobilePhone()
+      .withMessage("Số điện thoại không hợp lệ"),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ success: false, errors: errors.array() });
+      }
+
+      const { name, phoneNumber } = req.body;
+
+      const updateData = {};
+      if (name !== undefined) updateData.name = name;
+      if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+
+      const user = await User.findByIdAndUpdate(req.user._id, updateData, {
+        new: true,
+      }).select("-password");
+
+      res.json({
+        success: true,
+        message: "Cập nhật thông tin thành công",
+        user,
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: "Lỗi server" });
+    }
+  }
+);
+
+// ==============================
+// 👤 Lấy thông tin user hiện tại - ✅ THÊM MỚI
+// ==============================
+router.get("/profile", auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("-password");
+    res.json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Lỗi server" });
   }
 });
 
