@@ -14,17 +14,26 @@ const userSchema = new mongoose.Schema(
       unique: true,
       lowercase: true,
     },
+    phone: {
+      // ✅ ĐỔI TÊN từ phoneNumber thành phone và thêm required
+      type: String,
+      required: true, // ✅ THÊM required
+      unique: true, // ✅ THÊM unique
+      trim: true,
+      validate: {
+        validator: function (v) {
+          return /^(0|\+84)(3[2-9]|5[6|8|9]|7[0|6-9]|8[1-9]|9[0-9])[0-9]{7}$/.test(
+            v
+          );
+        },
+        message: "Số điện thoại không hợp lệ!",
+      },
+    },
     password: {
       type: String,
       required: true,
       minlength: 6,
     },
-    phoneNumber: {
-      type: String,
-      trim: true,
-      default: "", // Cho phép để trống
-    },
-    // ĐÃ BỎ resetPasswordToken và resetPasswordExpires
   },
   {
     timestamps: true,
