@@ -132,7 +132,7 @@ router.get("/config/:deviceId", async (req, res) => {
       deviceId,
       isActive: true,
     })
-      .populate("petId", "name species")
+      .populate("petId", "name species breed")
       .populate("owner", "name phone");
 
     if (!device) {
@@ -143,28 +143,38 @@ router.get("/config/:deviceId", async (req, res) => {
       });
     }
 
-    console.log(
-      "✅ Sending config to ESP32:",
-      deviceId,
-      "Pet:",
-      device.petId.name
-    );
+    // ✅ KIỂM TRA: device có owner và owner có phone không
+    if (!device.owner || !device.owner.phone) {
+      console.log("❌ Owner or phone not found for device:", deviceId);
+      return res.status(400).json({
+        success: false,
+        message: "Owner information incomplete",
+      });
+    }
 
+    console.log("✅ Sending config to ESP32:", {
+      deviceId,
+      petName: device.petId.name,
+      ownerPhone: device.owner.phone,
+    });
+
+    // ✅ RESPONSE với số điện thoại
     res.json({
       success: true,
       deviceId: device.deviceId,
       petId: device.petId._id,
       petName: device.petId.name,
-      phoneNumber: device.owner.phone, // Số điện thoại từ owner
+      phoneNumber: device.owner.phone, // SỐ ĐIỆN THOẠI ĐÂY!
       ownerName: device.owner.name,
       serverUrl: "https://pettracking2.onrender.com",
       updateInterval: 30000, // 30 giây
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("❌ Get config error:", error);
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: "Server error while fetching device config",
     });
   }
 });

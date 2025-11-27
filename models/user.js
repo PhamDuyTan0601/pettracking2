@@ -15,10 +15,10 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
     },
     phone: {
-      // ✅ ĐỔI TÊN từ phoneNumber thành phone và thêm required
+      // ✅ ĐÃ SỬA: phone thay vì phoneNumber và thêm required
       type: String,
-      required: true, // ✅ THÊM required
-      unique: true, // ✅ THÊM unique
+      required: true,
+      unique: true,
       trim: true,
       validate: {
         validator: function (v) {

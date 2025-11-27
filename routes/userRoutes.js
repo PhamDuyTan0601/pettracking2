@@ -9,7 +9,7 @@ const router = express.Router();
 const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
 
 // ==============================
-// 🧩 Register user - CẬP NHẬT ĐỂ HỖ TRỢ PHONE
+// 🧩 Register user - ĐÃ CẬP NHẬT ĐỂ HỖ TRỢ PHONE
 // ==============================
 router.post(
   "/register",
@@ -60,7 +60,7 @@ router.post(
           id: user._id,
           name: user.name,
           email: user.email,
-          phone: user.phone,
+          phone: user.phone, // ✅ TRẢ VỀ PHONE
         },
       });
     } catch (error) {
@@ -127,7 +127,7 @@ router.post(
           id: user._id,
           name: user.name,
           email: user.email,
-          phone: user.phone,
+          phone: user.phone, // ✅ TRẢ VỀ PHONE
         },
       });
     } catch (error) {
