@@ -7,12 +7,10 @@ const Device = require("./models/device");
 class MQTTService {
   constructor() {
     this.config = {
-      // ✅ EMQX Cloud URL của bạn
       brokerUrl:
         process.env.MQTT_BROKER_URL ||
         "mqtt://u799c202.ala.dedicated.aws.emqxcloud.com:1883",
 
-      // ✅ CREDENTIALS BẠN VỪA TẠO
       username: process.env.MQTT_USERNAME || "duytan",
       password: process.env.MQTT_PASSWORD || "123456",
 
@@ -134,6 +132,7 @@ class MQTTService {
         return;
       }
 
+      // ❗ Chỉ dùng thời gian server → tránh hoàn toàn lỗi Invalid Date
       const petData = new PetData({
         petId: device.petId._id,
         latitude: data.latitude,
@@ -141,7 +140,7 @@ class MQTTService {
         speed: data.speed || 0,
         batteryLevel: data.batteryLevel,
         accuracy: data.accuracy || 0,
-        timestamp: new Date(data.timestamp || Date.now()),
+        timestamp: new Date(), // 🔥 FIX LỖI: luôn dùng timestamp server
       });
 
       await petData.save();
@@ -175,13 +174,12 @@ class MQTTService {
   async handleAlert(deviceId, data) {
     try {
       console.log(`🚨 ALERT from ${deviceId}:`, data);
-      // Implement SMS/Email alerts here later
+      // Implement alerts here
     } catch (error) {
       console.error("❌ Error handling alert:", error);
     }
   }
 
-  // Method để publish messages đến ESP32
   publishConfig(deviceId, config) {
     if (!this.isConnected) {
       console.log("❌ MQTT not connected, cannot publish");
