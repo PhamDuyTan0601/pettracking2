@@ -17,6 +17,7 @@ app.use(
     origin: [
       "http://localhost:3000",
       "https://pet-mu-seven.vercel.app",
+      "https://trackingsytem06.vercel.app",
       "*", // Tạm thời cho testing
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
