@@ -56,47 +56,15 @@ const petSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
-
-    // ⭐ CẬP NHẬT: MULTIPLE SAFE ZONES
     safeZones: [
       {
-        name: {
-          type: String,
-          default: "Safe Zone",
-        },
+        name: String,
         center: {
-          lat: {
-            type: Number,
-            required: [true, "Latitude is required for safe zone"],
-          },
-          lng: {
-            type: Number,
-            required: [true, "Longitude is required for safe zone"],
-          },
+          lat: Number,
+          lng: Number,
         },
-        radius: {
-          type: Number,
-          required: [true, "Radius is required for safe zone"],
-          min: [10, "Radius must be at least 10 meters"],
-          max: [5000, "Radius cannot exceed 5000 meters"],
-          default: 100,
-        },
-        isActive: {
-          type: Boolean,
-          default: true,
-        },
-        color: {
-          type: String,
-          default: "#10B981", // Màu xanh cho safe zone
-        },
-        createdAt: {
-          type: Date,
-          default: Date.now,
-        },
-        updatedAt: {
-          type: Date,
-          default: Date.now,
-        },
+        radius: Number, // in meters
+        isActive: Boolean,
       },
     ],
   },
@@ -124,29 +92,6 @@ petSchema.virtual("ageInMonths").get(function () {
 petSchema.methods.updateLastSeen = function () {
   this.lastSeen = new Date();
   return this.save();
-};
-
-// Method to add safe zone
-petSchema.methods.addSafeZone = function (safeZoneData) {
-  this.safeZones.push({
-    ...safeZoneData,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  });
-  return this.save();
-};
-
-// Method to remove safe zone
-petSchema.methods.removeSafeZone = function (zoneId) {
-  this.safeZones = this.safeZones.filter(
-    (zone) => zone._id.toString() !== zoneId.toString()
-  );
-  return this.save();
-};
-
-// Method to get active safe zones
-petSchema.methods.getActiveSafeZones = function () {
-  return this.safeZones.filter((zone) => zone.isActive);
 };
 
 // Static method to find pets by owner

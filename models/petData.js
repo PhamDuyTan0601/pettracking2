@@ -6,11 +6,12 @@ const petDataSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Pet",
       required: [true, "Pet ID is required"],
-      index: true,
+      index: true, // giữ index đơn cho petId nếu muốn query riêng
     },
     timestamp: {
       type: Date,
       default: Date.now,
+      // đã bỏ index: true để tránh duplicate
     },
     location: {
       type: {
@@ -19,7 +20,8 @@ const petDataSchema = new mongoose.Schema(
         default: "Point",
       },
       coordinates: {
-        type: [Number],
+        type: [Number], // [longitude, latitude]
+        // bỏ index: "2dsphere" trực tiếp, dùng schema.index() bên dưới
       },
     },
     latitude: {
@@ -40,51 +42,31 @@ const petDataSchema = new mongoose.Schema(
       max: [200, "Speed seems unrealistic"],
       default: 0,
     },
-    // Chỉ lưu khi có giá trị thực
     altitude: {
       type: Number,
-      default: null, // Thay đổi từ 0 thành null
+      default: 0,
     },
     accuracy: {
       type: Number,
-      default: null, // Thay đổi từ 0 thành null
+      default: 0,
     },
-    // MPU6050 Accelerometer data - chỉ lưu khi có
-    accelX: { type: Number, default: null },
-    accelY: { type: Number, default: null },
-    accelZ: { type: Number, default: null },
-    // MPU6050 Gyroscope data - chỉ lưu khi có
-    gyroX: { type: Number, default: null },
-    gyroY: { type: Number, default: null },
-    gyroZ: { type: Number, default: null },
+    // MPU6050 Accelerometer data
+    accelX: { type: Number, default: 0 },
+    accelY: { type: Number, default: 0 },
+    accelZ: { type: Number, default: 0 },
+    // MPU6050 Gyroscope data
+    gyroX: { type: Number, default: 0 },
+    gyroY: { type: Number, default: 0 },
+    gyroZ: { type: Number, default: 0 },
     // Device status
-    batteryLevel: {
-      type: Number,
-      min: 0,
-      max: 100,
-      default: null, // Thay đổi từ 100 thành null
-    },
-    signalStrength: {
-      type: Number,
-      default: null,
-    },
-    temperature: {
-      type: Number,
-      default: null,
-    },
+    batteryLevel: { type: Number, min: 0, max: 100, default: 100 },
+    signalStrength: { type: Number, default: 0 },
+    temperature: { type: Number, default: 0 },
     isMoving: { type: Boolean, default: false },
     activityType: {
       type: String,
       enum: ["resting", "walking", "running", "playing", "unknown"],
       default: "unknown",
-    },
-    // Metadata từ database
-    metadata: {
-      ownerPhone: { type: String, default: null },
-      safeZoneCount: { type: Number, default: 0 },
-      deviceId: { type: String, default: null },
-      safeZoneCheck: { type: Boolean, default: false },
-      safeZoneName: { type: String, default: null },
     },
   },
   {
@@ -93,13 +75,14 @@ const petDataSchema = new mongoose.Schema(
 );
 
 // === INDEXES ===
+// Compound index: query nhanh theo petId và timestamp
 petDataSchema.index({ petId: 1, timestamp: -1 });
+
+// 2dsphere index cho location
 petDataSchema.index({ "location.coordinates": "2dsphere" });
-petDataSchema.index({ "metadata.deviceId": 1 });
 
 // === MIDDLEWARES ===
 petDataSchema.pre("save", function (next) {
-  // Chỉ tạo location nếu có cả lat và lng
   if (this.latitude && this.longitude) {
     this.location = {
       type: "Point",
@@ -107,36 +90,22 @@ petDataSchema.pre("save", function (next) {
     };
   }
 
-  // Chỉ tính toán nếu có speed
-  if (this.speed !== null && this.speed !== undefined) {
-    this.isMoving = this.speed > 0.5;
-  }
-
-  // Chỉ tính activity type nếu có đủ dữ liệu
-  if (this.speed !== null && this.speed !== undefined) {
-    this.determineActivityType();
-  }
-
+  this.isMoving = this.speed > 0.5;
+  this.determineActivityType();
   next();
 });
 
 // === VIRTUALS ===
 petDataSchema.virtual("accelMagnitude").get(function () {
-  if (this.accelX === null || this.accelY === null || this.accelZ === null) {
-    return 0;
-  }
   return Math.sqrt(this.accelX ** 2 + this.accelY ** 2 + this.accelZ ** 2);
 });
 
 petDataSchema.virtual("gyroMagnitude").get(function () {
-  if (this.gyroX === null || this.gyroY === null || this.gyroZ === null) {
-    return 0;
-  }
   return Math.sqrt(this.gyroX ** 2 + this.gyroY ** 2 + this.gyroZ ** 2);
 });
 
 petDataSchema.virtual("activityLevel").get(function () {
-  const baseLevel = this.speed ? Math.min(this.speed * 10, 50) : 0;
+  const baseLevel = Math.min(this.speed * 10, 50);
   const accelLevel = Math.min(this.accelMagnitude * 20, 30);
   const gyroLevel = Math.min(this.gyroMagnitude * 10, 20);
   return Math.min(baseLevel + accelLevel + gyroLevel, 100);
@@ -165,31 +134,17 @@ petDataSchema.methods.calculateDistance = function (lat1, lon1, lat2, lon2) {
   return R * c;
 };
 
-petDataSchema.methods.checkSafeZone = function (safeZones) {
-  if (!this.location || !safeZones || safeZones.length === 0) {
-    return { isInSafeZone: false, zoneName: null };
-  }
-
-  for (const zone of safeZones) {
-    if (!zone.isActive || !zone.center || !zone.radius) continue;
-
+petDataSchema.methods.isInSafeZone = function (safeZones) {
+  if (!this.location) return false;
+  return safeZones.some((zone) => {
     const distance = this.calculateDistance(
       this.latitude,
       this.longitude,
       zone.center.lat,
       zone.center.lng
     );
-
-    if (distance <= zone.radius) {
-      return {
-        isInSafeZone: true,
-        zoneName: zone.name || "Safe Zone",
-        distance: distance,
-      };
-    }
-  }
-
-  return { isInSafeZone: false, zoneName: null };
+    return distance <= zone.radius && zone.isActive;
+  });
 };
 
 // === STATIC METHODS ===
@@ -202,6 +157,48 @@ petDataSchema.statics.getDataInRange = function (petId, startDate, endDate) {
     petId,
     timestamp: { $gte: startDate, $lte: endDate },
   }).sort({ timestamp: 1 });
+};
+
+petDataSchema.statics.getDailyStats = function (petId, date) {
+  const startOfDay = new Date(date);
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date(date);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  return this.aggregate([
+    {
+      $match: {
+        petId: mongoose.Types.ObjectId(petId),
+        timestamp: { $gte: startOfDay, $lte: endOfDay },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalPoints: { $sum: 1 },
+        avgSpeed: { $avg: "$speed" },
+        maxSpeed: { $max: "$speed" },
+        totalDistance: { $sum: "$speed" },
+        avgActivity: { $avg: "$activityLevel" },
+        activityTypes: { $push: "$activityType" },
+      },
+    },
+  ]);
+};
+
+petDataSchema.statics.findNearbyPoints = function (
+  latitude,
+  longitude,
+  radiusInMeters
+) {
+  return this.find({
+    location: {
+      $near: {
+        $geometry: { type: "Point", coordinates: [longitude, latitude] },
+        $maxDistance: radiusInMeters,
+      },
+    },
+  });
 };
 
 module.exports = mongoose.model("PetData", petDataSchema);
