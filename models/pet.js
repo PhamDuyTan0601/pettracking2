@@ -56,15 +56,42 @@ const petSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    // ✅ CẬP NHẬT: Thêm validation cho safeZones
     safeZones: [
       {
-        name: String,
-        center: {
-          lat: Number,
-          lng: Number,
+        name: {
+          type: String,
+          default: "Vùng an toàn",
         },
-        radius: Number, // in meters
-        isActive: Boolean,
+        center: {
+          lat: {
+            type: Number,
+            required: true,
+            min: -90,
+            max: 90,
+          },
+          lng: {
+            type: Number,
+            required: true,
+            min: -180,
+            max: 180,
+          },
+        },
+        radius: {
+          type: Number,
+          required: true,
+          min: 10, // ít nhất 10m
+          max: 5000, // tối đa 5km
+          default: 100,
+        },
+        isActive: {
+          type: Boolean,
+          default: true,
+        },
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
       },
     ],
   },

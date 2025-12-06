@@ -120,7 +120,7 @@ router.get("/my-devices", auth, async (req, res) => {
 });
 
 // ==============================
-// 🆕 ENDPOINT MỚI: ESP32 lấy thông tin cấu hình (petId, phoneNumber)
+// 🆕 ENDPOINT MỚI: ESP32 lấy thông tin cấu hình (petId, phoneNumber, safeZone)
 // ==============================
 router.get("/config/:deviceId", async (req, res) => {
   try {
@@ -132,7 +132,7 @@ router.get("/config/:deviceId", async (req, res) => {
       deviceId,
       isActive: true,
     })
-      .populate("petId", "name species breed")
+      .populate("petId", "name species breed safeZones") // ✅ THÊM safeZones
       .populate("owner", "name phone");
 
     if (!device) {
@@ -152,24 +152,54 @@ router.get("/config/:deviceId", async (req, res) => {
       });
     }
 
+    // ✅ LẤY THÔNG TIN VÙNG AN TOÀN (nếu có)
+    let safeZoneInfo = null;
+    if (device.petId.safeZones && device.petId.safeZones.length > 0) {
+      // Lấy vùng an toàn active đầu tiên
+      const activeZone =
+        device.petId.safeZones.find((zone) => zone.isActive) ||
+        device.petId.safeZones[0];
+
+      if (activeZone) {
+        safeZoneInfo = {
+          center: {
+            lat: activeZone.center.lat,
+            lng: activeZone.center.lng,
+          },
+          radius: activeZone.radius,
+          name: activeZone.name,
+          isActive: activeZone.isActive,
+        };
+      }
+    }
+
     console.log("✅ Sending config to ESP32:", {
       deviceId,
       petName: device.petId.name,
       ownerPhone: device.owner.phone,
+      hasSafeZone: !!safeZoneInfo,
+      safeZoneRadius: safeZoneInfo?.radius || "none",
     });
 
-    // ✅ RESPONSE với số điện thoại
-    res.json({
+    // ✅ RESPONSE với đầy đủ thông tin
+    const response = {
       success: true,
       deviceId: device.deviceId,
       petId: device.petId._id,
       petName: device.petId.name,
-      phoneNumber: device.owner.phone, // SỐ ĐIỆN THOẠI ĐÂY!
+      phoneNumber: device.owner.phone, // SỐ ĐIỆN THOẠI
       ownerName: device.owner.name,
       serverUrl: "https://pettracking2.onrender.com",
       updateInterval: 30000, // 30 giây
       timestamp: new Date().toISOString(),
-    });
+    };
+
+    // ✅ THÊM SAFE ZONE NẾU CÓ
+    if (safeZoneInfo) {
+      response.safeZone = safeZoneInfo;
+    }
+
+    res.json(response);
   } catch (error) {
     console.error("❌ Get config error:", error);
     res.status(500).json({

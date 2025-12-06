@@ -16,10 +16,10 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://pet-mu-seven.vercel.app", // Thay bằng domain thực tế
+      "https://pet-mu-seven.vercel.app",
       "*", // Tạm thời cho testing
     ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
@@ -28,10 +28,11 @@ app.use(
 app.use(express.json());
 
 // ================================
-// 🔗 ROUTES
+// 🔗 ROUTES - THÊM safeZoneRoutes
 // ================================
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/pets", require("./routes/petRoutes"));
+app.use("/api/pets", require("./routes/safeZoneRoutes")); // ✅ THÊM DÒNG NÀY
 app.use("/api/petData", require("./routes/petDataRoutes"));
 app.use("/api/devices", require("./routes/deviceRoutes"));
 
@@ -48,6 +49,8 @@ app.get("/", (req, res) => {
       mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
     mqtt: mqttService.client ? "Connected" : "Disconnected",
     status: "healthy",
+    version: "1.2.0", // Tăng version
+    features: ["safe-zones", "device-config", "mqtt-realtime"],
   });
 });
 
@@ -93,6 +96,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 HTTP Server running on port ${PORT}`);
   console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
   console.log(`💓 Health check: http://0.0.0.0:${PORT}/health`);
+  console.log(`🔧 ESP32 Config: GET /api/devices/config/{deviceId}`);
 });
 
 // Graceful shutdown
