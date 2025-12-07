@@ -1,74 +1,91 @@
-// test-new-device.js
+// testMqttToESP32.js
 const mqtt = require("mqtt");
+const readline = require("readline");
 
-console.log("🔗 Testing NEW Device: ESP32_68C2470B65F4...");
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
 
-const config = {
-  host: "u799c202.ala.dedicated.aws.emqxcloud.com",
-  port: 1883,
-  username: "duytan",
-  password: "123456",
-  clientId: "pettracker",
-};
+const deviceId = "ESP32_68C2470B65F4";
 
-const NEW_DEVICE_ID = "8622";
+console.log("🚀 MQTT to ESP32 Test");
+console.log("=====================\n");
+console.log("1. Start ESP32 and wait for it to connect");
+console.log("2. Check Serial Monitor for MQTT connection");
+console.log("3. Press Enter here to send test message\n");
 
-const client = mqtt.connect(config);
+const client = mqtt.connect(
+  "mqtt://u799c202.ala.dedicated.aws.emqxcloud.com:1883",
+  {
+    username: "duytan",
+    password: "123456",
+    clientId: `manual_test_${Date.now()}`,
+  }
+);
 
 client.on("connect", () => {
-  console.log("✅ CONNECTED to EMQX!");
-  console.log("📱 Testing Device:", NEW_DEVICE_ID);
-  console.log("----------------------------------------");
+  console.log("✅ Connected to MQTT broker");
+  console.log(`📡 Ready to publish to: pets/${deviceId}/config\n`);
 
-  // Subscribe to new device topics
-  client.subscribe(`pets/${NEW_DEVICE_ID}/location`, (err) => {
-    if (err) {
-      console.log("❌ SUBSCRIBE failed:", err.message);
-    } else {
-      console.log("✅ SUBSCRIBED to device topic");
-
-      // Test publish to new device
-      const testData = {
-        deviceId: NEW_DEVICE_ID,
-        latitude: 10.762622,
-        longitude: 106.660172,
-        batteryLevel: 95,
-        speed: 1.2,
-        timestamp: Date.now(),
-        test: "new_device_test",
-      };
-
-      client.publish(
-        `pets/${NEW_DEVICE_ID}/location`,
-        JSON.stringify(testData),
-        (err) => {
-          if (err) {
-            console.log("❌ PUBLISH failed:", err.message);
-          } else {
-            console.log("✅ PUBLISH successful to new device");
-            console.log("📍 Data:", {
-              lat: testData.latitude,
-              lng: testData.longitude,
-              battery: testData.batteryLevel + "%",
-            });
-          }
-        }
-      );
-    }
+  rl.question("Press Enter when ESP32 is ready...", () => {
+    sendTestMessage();
   });
 });
 
-client.on("message", (topic, message) => {
-  console.log(`\n📨 MESSAGE RECEIVED [${topic}]:`);
-  console.log(JSON.parse(message.toString()));
-});
+function sendTestMessage() {
+  const message = {
+    success: true,
+    deviceId: deviceId,
+    petName: "Test Bobby",
+    phoneNumber: "+84123456789",
+    timestamp: new Date().toISOString(),
+    message: "HELLO FROM NODE.JS TEST",
+    testNumber: 1,
+  };
 
-client.on("error", (error) => {
-  console.error("❌ CONNECTION ERROR:", error.message);
-});
+  const topic = `pets/${deviceId}/config`;
 
-setTimeout(() => {
-  console.log("\n🎯 Test completed");
-  client.end();
-  process.exit(0);
-}, 8000);
+  console.log(`\n📤 Publishing to: ${topic}`);
+  console.log("Message:", JSON.stringify(message, null, 2));
+
+  // Send 3 times to be sure
+  let count = 0;
+  const send = () => {
+    client.publish(
+      topic,
+      JSON.stringify({ ...message, testNumber: count + 1 }),
+      { qos: 1 },
+      (err) => {
+        if (err) {
+          console.error(`❌ Send ${count + 1} failed:`, err);
+        } else {
+          count++;
+          console.log(`✅ Message ${count} sent`);
+        }
+
+        if (count < 3) {
+          setTimeout(send, 1000);
+        } else {
+          console.log("\n🎯 3 messages sent!");
+          console.log("\n🔍 Check ESP32 Serial Monitor for:");
+          console.log('- "[MQTT] Checking for messages..."');
+          console.log('- "[MQTT] Message pending!"');
+          console.log('- "[MQTT] JSON found:"');
+
+          rl.close();
+          client.end();
+          process.exit(0);
+        }
+      }
+    );
+  };
+
+  send();
+}
+
+client.on("error", (err) => {
+  console.error("❌ MQTT error:", err);
+  rl.close();
+  process.exit(1);
+});
