@@ -66,6 +66,75 @@ app.get("/health", (req, res) => {
 });
 
 // ================================
+// 🔧 DEBUG ENDPOINTS
+// ================================
+app.get("/debug/devices", async (req, res) => {
+  try {
+    const Device = require("./models/device");
+    const devices = await Device.find({})
+      .populate("petId", "name")
+      .populate("owner", "phone")
+      .limit(10);
+
+    res.json({
+      total: devices.length,
+      devices: devices.map((d) => ({
+        deviceId: d.deviceId,
+        petId: d.petId?._id,
+        petName: d.petId?.name,
+        ownerPhone: d.owner?.phone,
+        isActive: d.isActive,
+        createdAt: d.createdAt,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Check specific device
+app.get("/debug/device/:deviceId", async (req, res) => {
+  try {
+    const Device = require("./models/device");
+    const device = await Device.findOne({ deviceId: req.params.deviceId })
+      .populate("petId", "name safeZones")
+      .populate("owner", "name phone");
+
+    if (!device) {
+      return res.status(404).json({
+        found: false,
+        message: "Device not found",
+      });
+    }
+
+    res.json({
+      found: true,
+      device: {
+        deviceId: device.deviceId,
+        pet: device.petId
+          ? {
+              name: device.petId.name,
+              safeZonesCount: device.petId.safeZones?.length || 0,
+              safeZones: device.petId.safeZones,
+            }
+          : null,
+        owner: device.owner
+          ? {
+              name: device.owner.name,
+              phone: device.owner.phone,
+            }
+          : null,
+        isActive: device.isActive,
+        configSent: device.configSent,
+        lastSeen: device.lastSeen,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================================
 // 🧠 DATABASE CONNECTION
 // ================================
 const connectDB = async () => {
@@ -96,11 +165,15 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 HTTP Server running on port ${PORT}`);
   console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
   console.log(`💓 Health check: http://0.0.0.0:${PORT}/health`);
+  console.log(`🔧 ESP32 Test: GET /api/devices/test/{deviceId}`);
   console.log(`🔧 ESP32 Config: GET /api/devices/config/{deviceId}`);
   console.log(`📤 Publish Config: POST /api/devices/config/publish/{deviceId}`);
   console.log(`\n📡 MQTT Topics:`);
   console.log(`   • pets/{deviceId}/location`);
   console.log(`   • pets/{deviceId}/config`);
+  console.log(`\n🔧 Debug Endpoints:`);
+  console.log(`   • GET /debug/devices`);
+  console.log(`   • GET /debug/device/{deviceId}`);
 });
 
 // Graceful shutdown

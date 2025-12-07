@@ -203,9 +203,6 @@ class MQTTService {
     try {
       console.log(`⚙️ Preparing config for device: ${deviceId}`);
 
-      // 🚨 FIX: Kiểm tra và sửa deviceId nếu sai
-      deviceId = this.validateDeviceId(deviceId);
-
       const device = await Device.findOne({
         deviceId,
         isActive: true,
@@ -240,7 +237,7 @@ class MQTTService {
 
       const config = {
         success: true,
-        deviceId: device.deviceId, // Đảm bảo deviceId đúng
+        deviceId: device.deviceId,
         petId: device.petId._id,
         petName: device.petId.name,
         phoneNumber: device.owner.phone,
@@ -269,39 +266,17 @@ class MQTTService {
     }
   }
 
-  validateDeviceId(deviceId) {
-    // 🚨 FIX: Nếu deviceId sai, tự động sửa
-    if (deviceId === "ESP32_EC8A75B865E4") {
-      console.log(`⚠️  WARNING: Wrong deviceId detected: ${deviceId}`);
-      console.log(`   Auto-correcting to: ESP32_68C2470B65F4`);
-      return "ESP32_68C2470B65F4";
-    }
-    return deviceId;
-  }
-
   publishConfig(deviceId, config) {
     if (!this.isConnected) {
       console.log("❌ MQTT not connected, cannot publish");
       return;
     }
 
-    // 🚨 FIX: Đảm bảo deviceId đúng
-    deviceId = this.validateDeviceId(deviceId);
-
-    // Đảm bảo config.deviceId khớp
-    config.deviceId = deviceId;
-
     const topic = `pets/${deviceId}/config`;
 
     console.log(`\n🔍 DEBUG PUBLISH CONFIG:`);
     console.log(`   Topic: ${topic}`);
     console.log(`   Config deviceId: ${config.deviceId}`);
-
-    if (topic.includes("ESP32_EC8A75B865E4")) {
-      console.log(`❌❌❌ CRITICAL: Trying to publish to WRONG device!`);
-      console.log(`   Topic contains wrong device ID!`);
-      return;
-    }
 
     this.client.publish(
       topic,

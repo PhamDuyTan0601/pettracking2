@@ -1,91 +1,124 @@
-// checkDeviceId.js
+// testExactTopic.js
 const mqtt = require("mqtt");
 
-console.log("🔍 Checking Device ID Match");
-console.log("===========================\n");
+console.log("🎯 TEST EXACT TOPIC MATCH");
+console.log("=========================\n");
 
-// Test với cả 2 device IDs
-const deviceIds = ["ESP32_68C2470B65F4", "ESP32_EC8A75B865E4"];
+const DEVICE_ID = "ESP32_68C2470B65F4";
 
 const client = mqtt.connect(
   "mqtt://u799c202.ala.dedicated.aws.emqxcloud.com:1883",
   {
     username: "duytan",
     password: "123456",
-    clientId: `checker_${Date.now()}`,
+    clientId: `exact_test_${Date.now()}`,
   }
 );
 
+// Subscribe để xem tất cả
+client.subscribe("#", { qos: 1 });
+
 client.on("connect", () => {
-  console.log("✅ Connected to MQTT\n");
+  console.log("✅ Connected");
 
-  // Subscribe to both topics
-  deviceIds.forEach((deviceId) => {
-    const topic = `pets/${deviceId}/config`;
-    client.subscribe(topic, { qos: 1 }, (err) => {
-      if (err) {
-        console.error(`❌ Failed to subscribe to ${topic}:`, err);
-      } else {
-        console.log(`📡 Subscribed to: ${topic}`);
-      }
-    });
-  });
+  console.log("\n📡 ESP32 is subscribed to:");
+  console.log("   1. pets/ESP32_68C2470B65F4/config");
+  console.log("   2. pets/+/config");
+  console.log("   3. test/#");
+  console.log("   4. # (all topics)");
 
-  // Publish test messages
+  // Test 1: Gửi đến EXACT topic
   setTimeout(() => {
-    console.log("\n📤 Publishing test messages...");
+    console.log("\n🔹 TEST 1: Exact topic match");
+    const exactTopic = "pets/ESP32_68C2470B65F4/config";
+    const msg1 = {
+      test: "EXACT_TOPIC_TEST",
+      message: "This should definitely work!",
+      timestamp: new Date().toISOString(),
+    };
 
-    deviceIds.forEach((deviceId, index) => {
-      setTimeout(() => {
-        const testMsg = {
-          deviceId: deviceId,
-          test: `Message for ${deviceId}`,
-          timestamp: new Date().toISOString(),
-          number: index + 1,
-        };
+    console.log(`📤 Sending to: ${exactTopic}`);
+    console.log("Message:", JSON.stringify(msg1, null, 2));
 
-        const topic = `pets/${deviceId}/config`;
-        console.log(`\n🔹 Publishing to ${topic}:`, JSON.stringify(testMsg));
-
-        client.publish(topic, JSON.stringify(testMsg), { qos: 1 }, (err) => {
-          if (err) {
-            console.error(`❌ Publish failed:`, err);
-          } else {
-            console.log(`✅ Published`);
-          }
-        });
-      }, index * 2000);
+    client.publish(exactTopic, JSON.stringify(msg1), { qos: 1 }, (err) => {
+      if (err) console.error("Error:", err);
     });
-
-    // End test
-    setTimeout(() => {
-      console.log("\n🧪 Test complete!");
-      console.log("Check which device ID ESP32 actually receives");
-      client.end();
-      process.exit(0);
-    }, 6000);
   }, 2000);
+
+  // Test 2: Gửi với QoS 0
+  setTimeout(() => {
+    console.log("\n🔹 TEST 2: With QoS 0");
+    const msg2 = {
+      test: "QOS_0_TEST",
+      qos: 0,
+      message: "Testing different QoS level",
+    };
+
+    client.publish("pets/ESP32_68C2470B65F4/config", JSON.stringify(msg2), {
+      qos: 0,
+    });
+    console.log("✅ Sent with QoS 0");
+  }, 4000);
+
+  // Test 3: Gửi với retain=false
+  setTimeout(() => {
+    console.log("\n🔹 TEST 3: Without retain flag");
+    const msg3 = {
+      test: "NO_RETAIN_TEST",
+      retain: false,
+      message: "Testing without retain",
+    };
+
+    client.publish("pets/ESP32_68C2470B65F4/config", JSON.stringify(msg3), {
+      qos: 1,
+      retain: false,
+    });
+    console.log("✅ Sent without retain");
+  }, 6000);
+
+  // Test 4: Gửi đến wildcard topic
+  setTimeout(() => {
+    console.log("\n🔹 TEST 4: Wildcard topic match");
+    const msg4 = {
+      test: "WILDCARD_TEST",
+      message: "Should match pets/+/config",
+    };
+
+    client.publish("pets/ANYTHING/config", JSON.stringify(msg4), { qos: 1 });
+    console.log("✅ Sent to pets/ANYTHING/config");
+  }, 8000);
 });
 
-// Handle messages
+// Xem tất cả messages
 client.on("message", (topic, message) => {
-  console.log(`\n🎯 RECEIVED on ${topic}:`);
-  console.log(JSON.parse(message.toString()));
+  console.log(`\n📥 RECEIVED on ${topic}:`);
 
-  // Check device ID match
-  const data = JSON.parse(message.toString());
-  const topicDeviceId = topic.split("/")[1];
+  try {
+    const data = JSON.parse(message.toString());
 
-  if (data.deviceId === topicDeviceId) {
-    console.log(`✅ Device ID MATCH: ${data.deviceId}`);
-  } else {
-    console.log(`❌ Device ID MISMATCH!`);
-    console.log(`   Topic: ${topicDeviceId}`);
-    console.log(`   Message: ${data.deviceId}`);
+    // Highlight messages to ESP32
+    if (topic.includes("ESP32") || topic.includes("config")) {
+      console.log("🎯 THIS IS FOR ESP32!");
+      console.log("Test:", data.test || "No test field");
+    }
+
+    console.log(JSON.stringify(data, null, 2));
+  } catch (e) {
+    console.log(message.toString());
   }
 });
 
-client.on("error", (err) => {
-  console.error("❌ MQTT error:", err);
-  process.exit(1);
-});
+// Timeout
+setTimeout(() => {
+  console.log("\n" + "=".repeat(50));
+  console.log("🧪 TEST COMPLETE");
+  console.log("=".repeat(50));
+  console.log("\n📋 ESP32 SHOULD RECEIVE:");
+  console.log("   - Test 1: EXACT_TOPIC_TEST");
+  console.log("   - Test 2: QOS_0_TEST");
+  console.log("   - Test 3: NO_RETAIN_TEST");
+  console.log("   - Test 4: WILDCARD_TEST");
+
+  client.end();
+  process.exit(0);
+}, 12000);
