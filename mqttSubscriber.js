@@ -22,7 +22,7 @@ class MQTTService {
         location: "pets/+/location",
         status: "pets/+/status",
         alert: "pets/+/alert",
-        // KHÔNG subscribe config vì server publish topic này
+        config: "pets/+/config", // Thêm để listen config request
       },
     };
 
@@ -98,9 +98,30 @@ class MQTTService {
   async handleMessage(topic, message) {
     try {
       const payload = JSON.parse(message.toString());
-      console.log(`📨 MQTT Message [${topic}]:`, payload);
+      console.log(
+        `📨 MQTT Message [${topic}]:`,
+        JSON.stringify(payload, null, 2)
+      );
 
       const deviceId = topic.split("/")[1];
+
+      // Xử lý config request
+      if (topic.includes("/config")) {
+        if (
+          payload.type === "config_request" ||
+          payload.configRequest === true
+        ) {
+          console.log(`⚙️ Config request from ${deviceId}`);
+          await this.handleConfigRequest(deviceId, payload);
+          return;
+        }
+
+        // Bỏ qua retained test message
+        if (payload.retained === true && payload.message === "RETAINED_TEST") {
+          console.log(`📝 Ignoring old retained test message from ${deviceId}`);
+          return;
+        }
+      }
 
       switch (true) {
         case topic.includes("/location"):
@@ -115,6 +136,10 @@ class MQTTService {
           await this.handleAlert(deviceId, payload);
           break;
 
+        case topic.includes("/config"):
+          // Đã xử lý ở trên
+          break;
+
         default:
           console.log("📝 Unknown topic (ignoring):", topic);
       }
@@ -123,6 +148,7 @@ class MQTTService {
     }
   }
 
+  // 🔥 FIXED: HÀM XỬ LÝ LOCATION - LUÔN GỬI CONFIG
   async handleLocationData(deviceId, data) {
     try {
       console.log(`📍 Processing location for device: ${deviceId}`);
@@ -133,51 +159,121 @@ class MQTTService {
         return;
       }
 
-      // ❗ Chỉ dùng thời gian server → tránh hoàn toàn lỗi Invalid Date
+      // Save location data
       const petData = new PetData({
         petId: device.petId._id,
         latitude: data.latitude,
         longitude: data.longitude,
         speed: data.speed || 0,
-        batteryLevel: data.batteryLevel,
+        batteryLevel: data.batteryLevel || 100,
         accuracy: data.accuracy || 0,
-        timestamp: new Date(), // 🔥 FIX LỖI: luôn dùng timestamp server
+        timestamp: new Date(),
       });
 
       await petData.save();
 
+      // Update device
       device.lastSeen = new Date();
       await device.save();
 
       console.log(`📍 Location saved for ${deviceId} → ${device.petId.name}`);
 
-      // 🔥 AUTO-SEND CONFIG khi nhận location đầu tiên
-      if (!device.configSent) {
-        console.log(`⚙️ First location from ${deviceId} - auto-sending config`);
-        await this.sendConfigToDevice(deviceId);
-        device.configSent = true;
-        device.lastConfigSent = new Date();
-        await device.save();
-      }
+      // 🔥 🔥 🔥 QUAN TRỌNG: LUÔN GỬI CONFIG KHI NHẬN LOCATION
+      console.log(
+        `⚙️ AUTO-SENDING CONFIG to ${deviceId} (triggered by location)`
+      );
+
+      // Gửi config đến device
+      await this.sendConfigToDevice(deviceId);
+
+      // Cập nhật trạng thái
+      device.configSent = true;
+      device.lastConfigSent = new Date();
+      await device.save();
+
+      console.log(`✅ Config sent to ${deviceId} successfully`);
     } catch (error) {
       console.error("❌ Error saving location data:", error);
     }
   }
 
+  // 🔥 FIXED: HÀM XỬ LÝ STATUS - CHECK CONFIG REQUEST
   async handleStatusUpdate(deviceId, data) {
     try {
-      await Device.findOneAndUpdate(
-        { deviceId },
-        {
-          lastSeen: new Date(),
-          batteryLevel: data.batteryLevel,
-          signalStrength: data.signalStrength,
-          isActive: true,
-        }
-      );
+      console.log(`🔋 Processing status for device: ${deviceId}`);
+
+      const device = await Device.findOne({ deviceId });
+      if (!device) {
+        console.log(`❌ Device not found in status update: ${deviceId}`);
+        return;
+      }
+
+      // Cập nhật thông tin device
+      const updateData = {
+        lastSeen: new Date(),
+        isActive: true,
+      };
+
+      if (data.batteryLevel !== undefined)
+        updateData.batteryLevel = data.batteryLevel;
+      if (data.battery !== undefined) updateData.batteryLevel = data.battery;
+      if (data.signalStrength !== undefined)
+        updateData.signalStrength = data.signalStrength;
+      if (data.rssi !== undefined) updateData.signalStrength = data.rssi;
+
+      await Device.findOneAndUpdate({ deviceId }, updateData);
+
       console.log(`🔋 Status updated for ${deviceId}`);
+
+      // 🔥 Gửi config nếu device báo cần
+      if (
+        data.needConfig === true ||
+        data.configReceived === false ||
+        !device.configSent
+      ) {
+        console.log(`⚙️ Device ${deviceId} needs config (from status message)`);
+
+        // Đợi 1 giây rồi gửi config
+        setTimeout(async () => {
+          await this.sendConfigToDevice(deviceId);
+
+          // Cập nhật trạng thái
+          device.configSent = true;
+          device.lastConfigSent = new Date();
+          await device.save();
+        }, 1000);
+      }
     } catch (error) {
       console.error("❌ Error updating device status:", error);
+    }
+  }
+
+  // 🔥 NEW: HÀM XỬ LÝ CONFIG REQUEST
+  async handleConfigRequest(deviceId, data) {
+    try {
+      console.log(`⚙️ Config request from ${deviceId}:`, data);
+
+      const device = await Device.findOne({
+        deviceId,
+        isActive: true,
+      })
+        .populate("petId", "name species breed safeZones")
+        .populate("owner", "name phone");
+
+      if (!device) {
+        console.log(`❌ Device not found or inactive: ${deviceId}`);
+        return;
+      }
+
+      console.log(`⚙️ Sending config to ${deviceId} as requested`);
+      await this.sendConfigToDevice(deviceId);
+
+      // Cập nhật trạng thái
+      device.configSent = true;
+      device.lastConfigSent = new Date();
+      await device.save();
+    } catch (error) {
+      console.error("❌ Error handling config request:", error);
     }
   }
 
@@ -199,6 +295,7 @@ class MQTTService {
     }
   }
 
+  // 🔥 FIXED: HÀM GỬI CONFIG ĐẾN DEVICE
   async sendConfigToDevice(deviceId) {
     try {
       console.log(`⚙️ Preparing config for device: ${deviceId}`);
@@ -215,30 +312,43 @@ class MQTTService {
         return;
       }
 
-      // Prepare config
+      // Validate required data
+      if (!device.petId) {
+        console.log(`❌ Pet not found for device: ${deviceId}`);
+        return;
+      }
+
+      if (!device.owner || !device.owner.phone) {
+        console.log(`❌ Owner or phone not found for device: ${deviceId}`);
+        return;
+      }
+
+      // Lấy thông tin vùng an toàn
       let safeZoneInfo = null;
       if (device.petId.safeZones && device.petId.safeZones.length > 0) {
         const activeZone =
           device.petId.safeZones.find((zone) => zone.isActive) ||
           device.petId.safeZones[0];
 
-        if (activeZone) {
+        if (activeZone && activeZone.center) {
           safeZoneInfo = {
             center: {
               lat: activeZone.center.lat,
               lng: activeZone.center.lng,
             },
-            radius: activeZone.radius,
-            name: activeZone.name,
-            isActive: activeZone.isActive,
+            radius: activeZone.radius || 100,
+            name: activeZone.name || "Safe Zone",
+            isActive: activeZone.isActive !== false,
           };
         }
       }
 
+      // Tạo config message
       const config = {
         success: true,
+        _source: "server",
         deviceId: device.deviceId,
-        petId: device.petId._id,
+        petId: device.petId._id.toString(),
         petName: device.petId.name,
         phoneNumber: device.owner.phone,
         ownerName: device.owner.name,
@@ -247,25 +357,32 @@ class MQTTService {
         updateInterval: 30000,
         timestamp: new Date().toISOString(),
         message: "Configuration from Pet Tracker Server",
-        _source: "server", // Thêm identifier để tránh loop
+        configSentAt: device.lastConfigSent
+          ? device.lastConfigSent.toISOString()
+          : new Date().toISOString(),
       };
 
+      // Thêm safe zone nếu có
       if (safeZoneInfo) {
         config.safeZone = safeZoneInfo;
         console.log(
           `📍 Safe zone included: ${safeZoneInfo.name} (${safeZoneInfo.radius}m)`
         );
-      } else {
-        console.log(`ℹ️  No safe zone configured for ${device.petId.name}`);
       }
 
-      // Publish config
+      console.log(`✅ Config prepared for ${deviceId}:`);
+      console.log(`   Pet: ${config.petName}`);
+      console.log(`   Phone: ${config.phoneNumber}`);
+      console.log(`   Has Safe Zone: ${!!config.safeZone}`);
+
+      // Publish config với retain flag
       this.publishConfig(deviceId, config);
     } catch (error) {
       console.error("❌ Error sending config:", error);
     }
   }
 
+  // 🔥 FIXED: HÀM PUBLISH CONFIG
   publishConfig(deviceId, config) {
     if (!this.isConnected) {
       console.log("❌ MQTT not connected, cannot publish");
@@ -274,10 +391,12 @@ class MQTTService {
 
     const topic = `pets/${deviceId}/config`;
 
-    console.log(`\n🔍 DEBUG PUBLISH CONFIG:`);
+    console.log(`\n📤 PUBLISHING CONFIG:`);
     console.log(`   Topic: ${topic}`);
-    console.log(`   Config deviceId: ${config.deviceId}`);
+    console.log(`   Device: ${config.deviceId}`);
+    console.log(`   Pet: ${config.petName}`);
 
+    // Publish với retain: true để ESP32 nhận được ngay khi connect
     this.client.publish(
       topic,
       JSON.stringify(config),
@@ -286,15 +405,38 @@ class MQTTService {
         if (err) {
           console.error(`❌ Failed to publish config:`, err);
         } else {
-          console.log(`✅ Published config to: ${topic}`);
-          console.log(`   Pet: ${config.petName}`);
-          console.log(`   Phone: ${config.phoneNumber}`);
-          if (config.safeZone) {
-            console.log(`   Safe Zone: ${config.safeZone.name}`);
-          }
+          console.log(`✅ Config published to: ${topic}`);
+          console.log(`   Retained: YES (ESP32 will get it immediately)`);
         }
       }
     );
+  }
+
+  // Hàm clear retained messages
+  async clearRetainedMessages(deviceId) {
+    if (!this.isConnected) {
+      console.log("❌ MQTT not connected");
+      return;
+    }
+
+    const topics = [
+      `pets/${deviceId}/config`,
+      `pets/${deviceId}/location`,
+      `pets/${deviceId}/status`,
+      `pets/${deviceId}/alert`,
+    ];
+
+    console.log(`🧹 Clearing retained messages for ${deviceId}...`);
+
+    topics.forEach((topic) => {
+      this.client.publish(topic, "", { retain: true, qos: 1 }, (err) => {
+        if (err) {
+          console.log(`   ❌ Failed to clear ${topic}:`, err.message);
+        } else {
+          console.log(`   ✅ Cleared retained message from ${topic}`);
+        }
+      });
+    });
   }
 
   getConnectionStatus() {

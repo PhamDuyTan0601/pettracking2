@@ -41,6 +41,11 @@ router.post("/register", auth, async (req, res) => {
 
     console.log("✅ Device registered:", deviceId, "for pet:", pet.name);
 
+    // Auto send config sau khi đăng ký
+    setTimeout(async () => {
+      await mqttService.manualPublishConfig(deviceId);
+    }, 1000);
+
     res.json({
       success: true,
       message: "Device registered successfully",
@@ -133,10 +138,27 @@ router.get("/test/:deviceId", async (req, res) => {
     // Kiểm tra device có tồn tại không
     const deviceExists = await Device.exists({ deviceId: deviceId });
 
+    // Lấy thông tin device
+    let deviceInfo = null;
+    if (deviceExists) {
+      deviceInfo = await Device.findOne({ deviceId: deviceId })
+        .populate("petId", "name")
+        .populate("owner", "phone");
+    }
+
     res.json({
       success: true,
       deviceId: deviceId,
       deviceExists: !!deviceExists,
+      deviceInfo: deviceInfo
+        ? {
+            petName: deviceInfo.petId?.name,
+            ownerPhone: deviceInfo.owner?.phone,
+            isActive: deviceInfo.isActive,
+            configSent: deviceInfo.configSent,
+            lastSeen: deviceInfo.lastSeen,
+          }
+        : null,
       serverTime: new Date().toISOString(),
       serverUrl: process.env.SERVER_URL || "https://pettracking2.onrender.com",
       message: deviceExists
@@ -162,13 +184,7 @@ router.get("/config/:deviceId", async (req, res) => {
 
     console.log("🔧 ESP32 requesting config for device:", deviceId);
 
-    // Không dùng fix cứng nữa, chỉ log cảnh báo
-    if (deviceId === "ESP32_EC8A75B865E4") {
-      console.log("⚠️  WARNING: Possible wrong deviceId detected:", deviceId);
-      console.log("   Expected format: ESP32_XXXXXXXXXXXX");
-    }
-
-    // Tìm device trong DB với deviceId chính xác
+    // Tìm device trong DB
     const device = await Device.findOne({
       deviceId: deviceId,
       isActive: true,
@@ -178,22 +194,6 @@ router.get("/config/:deviceId", async (req, res) => {
 
     if (!device) {
       console.log("❌ Device not found or not active:", deviceId);
-
-      // Thử tìm với deviceId khác (nếu có sai sót về chữ hoa/thường)
-      const alternativeDevice = await Device.findOne({
-        deviceId: { $regex: new RegExp(deviceId, "i") },
-        isActive: true,
-      });
-
-      if (alternativeDevice) {
-        console.log(
-          "ℹ️  Found device with case-insensitive match:",
-          alternativeDevice.deviceId
-        );
-        // Trả về device tìm thấy
-        return buildConfigResponse(res, alternativeDevice);
-      }
-
       return res.status(404).json({
         success: false,
         message: "Device not registered or not active",
@@ -202,7 +202,7 @@ router.get("/config/:deviceId", async (req, res) => {
       });
     }
 
-    // ✅ Gọi hàm build response
+    // Build response
     return buildConfigResponse(res, device);
   } catch (error) {
     console.error("❌ Get config error:", error);
@@ -228,10 +228,9 @@ function buildConfigResponse(res, device) {
       throw new Error("Owner phone number is required");
     }
 
-    // ✅ LẤY THÔNG TIN VÙNG AN TOÀN (nếu có)
+    // Lấy thông tin vùng an toàn
     let safeZoneInfo = null;
     if (device.petId.safeZones && device.petId.safeZones.length > 0) {
-      // Lấy vùng an toàn active đầu tiên
       const activeZone =
         device.petId.safeZones.find((zone) => zone.isActive) ||
         device.petId.safeZones[0];
@@ -262,42 +261,48 @@ function buildConfigResponse(res, device) {
       safeZoneRadius: safeZoneInfo?.radius || "none",
     });
 
-    // ✅ BUILD RESPONSE
+    // Build response
     const response = {
       success: true,
+      _source: "http_api",
       deviceId: device.deviceId,
       petId: device.petId._id.toString(),
       petName: device.petId.name,
       phoneNumber: device.owner.phone,
       ownerName: device.owner.name,
       serverUrl: process.env.SERVER_URL || "https://pettracking2.onrender.com",
-      apiEndpoints: {
-        submitData: "/api/petData",
-        getConfig: `/api/devices/config/${device.deviceId}`,
-        healthCheck: "/health",
-      },
-      updateInterval: 30000, // 30 giây
-      heartbeatInterval: 60000, // 1 phút
+      updateInterval: 30000,
       timestamp: new Date().toISOString(),
       version: "1.0.0",
+      mqttConfig: {
+        broker: "u799c202.ala.dedicated.aws.emqxcloud.com",
+        port: 1883,
+        username: "duytan",
+        password: "123456",
+        topics: {
+          location: `pets/${device.deviceId}/location`,
+          status: `pets/${device.deviceId}/status`,
+          alert: `pets/${device.deviceId}/alert`,
+          config: `pets/${device.deviceId}/config`,
+        },
+      },
     };
 
-    // ✅ THÊM SAFE ZONE NẾU CÓ
+    // Thêm safe zone nếu có
     if (safeZoneInfo) {
       response.safeZone = safeZoneInfo;
     }
 
-    // ✅ THÊM THÔNG TIN DEBUG (chỉ trong môi trường dev)
-    if (process.env.NODE_ENV === "development") {
-      response.debug = {
-        deviceRegistered: new Date(device.createdAt).toISOString(),
-        lastSeen: device.lastSeen
-          ? new Date(device.lastSeen).toISOString()
-          : null,
-        configSent: device.configSent || false,
-        petSpecies: device.petId.species,
-      };
-    }
+    // Thêm thông tin debug
+    response.debug = {
+      deviceRegistered: new Date(device.createdAt).toISOString(),
+      lastSeen: device.lastSeen
+        ? new Date(device.lastSeen).toISOString()
+        : null,
+      configSent: device.configSent || false,
+      petSpecies: device.petId.species,
+      configVia: "HTTP API",
+    };
 
     res.json(response);
   } catch (error) {
@@ -317,7 +322,7 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
   try {
     let { deviceId } = req.params;
 
-    console.log("📤 Publishing config to device:", deviceId);
+    console.log("📤 Publishing config to device via MQTT:", deviceId);
 
     const device = await Device.findOne({
       deviceId,
@@ -334,45 +339,8 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
       });
     }
 
-    // Prepare config
-    let safeZoneInfo = null;
-    if (device.petId.safeZones && device.petId.safeZones.length > 0) {
-      const activeZone =
-        device.petId.safeZones.find((zone) => zone.isActive) ||
-        device.petId.safeZones[0];
-
-      if (activeZone) {
-        safeZoneInfo = {
-          center: {
-            lat: activeZone.center.lat,
-            lng: activeZone.center.lng,
-          },
-          radius: activeZone.radius,
-          name: activeZone.name,
-          isActive: activeZone.isActive,
-        };
-      }
-    }
-
-    const config = {
-      success: true,
-      deviceId: device.deviceId,
-      petId: device.petId._id,
-      petName: device.petId.name,
-      phoneNumber: device.owner.phone,
-      ownerName: device.owner.name,
-      serverUrl: "https://pettracking2.onrender.com",
-      updateInterval: 30000,
-      timestamp: new Date().toISOString(),
-      message: "Manual config from web interface",
-    };
-
-    if (safeZoneInfo) {
-      config.safeZone = safeZoneInfo;
-    }
-
-    // Publish to MQTT
-    mqttService.publishConfig(deviceId, config);
+    // Gọi MQTT service để publish config
+    await mqttService.manualPublishConfig(deviceId);
 
     // Update device
     device.configSent = true;
@@ -383,11 +351,146 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
 
     res.json({
       success: true,
-      message: "Config published successfully",
-      config,
+      message: "Config published successfully via MQTT",
+      deviceId: deviceId,
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error("❌ Publish config error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// ==============================
+// 🆕 ENDPOINT: TRIGGER CONFIG SEND NGAY LẬP TỨC (No auth - for ESP32)
+// ==============================
+router.post("/trigger-config/:deviceId", async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    console.log("🚀 Manual trigger config for device:", deviceId);
+
+    // Kiểm tra device
+    const device = await Device.findOne({
+      deviceId,
+      isActive: true,
+    });
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found or not active",
+      });
+    }
+
+    // Gọi MQTT service để gửi config
+    await mqttService.manualPublishConfig(deviceId);
+
+    // Cập nhật trạng thái
+    device.configSent = true;
+    device.lastConfigSent = new Date();
+    await device.save();
+
+    console.log("✅ Config triggered for:", deviceId);
+
+    res.json({
+      success: true,
+      message: "Config sent to device via MQTT",
+      deviceId: deviceId,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("❌ Trigger config error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// ==============================
+// 🆕 ENDPOINT: CLEAR RETAINED MESSAGES
+// ==============================
+router.post("/clear-retained/:deviceId", auth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    console.log("🧹 Clearing retained messages for:", deviceId);
+
+    // Kiểm tra device thuộc về user
+    const device = await Device.findOne({
+      deviceId,
+      owner: req.user._id,
+    });
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found or access denied",
+      });
+    }
+
+    // Gọi MQTT service để clear retained messages
+    await mqttService.clearRetainedMessages(deviceId);
+
+    res.json({
+      success: true,
+      message: "Retained messages cleared",
+      deviceId: deviceId,
+    });
+  } catch (error) {
+    console.error("❌ Clear retained error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// ==============================
+// 🆕 ENDPOINT: Get device status
+// ==============================
+router.get("/status/:deviceId", auth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    const device = await Device.findOne({
+      deviceId,
+      owner: req.user._id,
+    })
+      .populate("petId", "name")
+      .populate("owner", "name phone");
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      device: {
+        deviceId: device.deviceId,
+        isActive: device.isActive,
+        configSent: device.configSent,
+        lastConfigSent: device.lastConfigSent,
+        lastSeen: device.lastSeen,
+        createdAt: device.createdAt,
+        pet: device.petId
+          ? {
+              name: device.petId.name,
+              id: device.petId._id,
+            }
+          : null,
+        mqttConnected: mqttService.getConnectionStatus(),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Get device status error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -403,7 +506,8 @@ router.get("/list/devices", auth, async (req, res) => {
     const devices = await Device.find({ isActive: true })
       .populate("petId", "name")
       .populate("owner", "name phone")
-      .select("deviceId petId owner configSent lastSeen createdAt");
+      .select("deviceId petId owner configSent lastSeen createdAt isActive")
+      .sort({ createdAt: -1 });
 
     res.json({
       success: true,
@@ -411,10 +515,13 @@ router.get("/list/devices", auth, async (req, res) => {
       devices: devices.map((d) => ({
         deviceId: d.deviceId,
         petName: d.petId?.name || "No pet",
+        ownerName: d.owner?.name || "No owner",
         ownerPhone: d.owner?.phone || "No phone",
         configSent: d.configSent,
         lastSeen: d.lastSeen,
         createdAt: d.createdAt,
+        isActive: d.isActive,
+        mqttConnected: mqttService.getConnectionStatus(),
       })),
     });
   } catch (error) {

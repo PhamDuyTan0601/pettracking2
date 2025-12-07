@@ -51,6 +51,13 @@ app.get("/", (req, res) => {
     status: "healthy",
     version: "1.3.0",
     features: ["auto-config", "safe-zones", "mqtt-realtime"],
+    endpoints: {
+      health: "/health",
+      deviceConfig: "/api/devices/config/{deviceId}",
+      deviceTest: "/api/devices/test/{deviceId}",
+      triggerConfig: "/api/devices/trigger-config/{deviceId}",
+      debug: "/debug/*",
+    },
   });
 });
 
@@ -62,28 +69,133 @@ app.get("/health", (req, res) => {
     database:
       mongoose.connection.readyState === 1 ? "connected" : "disconnected",
     mqtt: mqttService.getConnectionStatus() ? "connected" : "disconnected",
+    serverUrl: process.env.SERVER_URL || "https://pettracking2.onrender.com",
+    env: process.env.NODE_ENV || "development",
   });
 });
 
 // ================================
 // 🔧 DEBUG ENDPOINTS
 // ================================
+app.get("/debug/mqtt-status", (req, res) => {
+  res.json({
+    mqttConnected: mqttService.getConnectionStatus(),
+    broker: "u799c202.ala.dedicated.aws.emqxcloud.com:1883",
+    username: "duytan",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get("/debug/device-config/:deviceId", async (req, res) => {
+  try {
+    const Device = require("./models/device");
+    const device = await Device.findOne({ deviceId: req.params.deviceId })
+      .populate("petId", "name safeZones")
+      .populate("owner", "name phone");
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found",
+      });
+    }
+
+    // Kiểm tra config có sẵn để gửi
+    const configReady = device.petId && device.owner && device.owner.phone;
+
+    res.json({
+      success: true,
+      device: {
+        deviceId: device.deviceId,
+        isActive: device.isActive,
+        configSent: device.configSent,
+        lastConfigSent: device.lastConfigSent,
+        lastSeen: device.lastSeen,
+        pet: device.petId
+          ? {
+              name: device.petId.name,
+              safeZonesCount: device.petId.safeZones?.length || 0,
+              hasSafeZones:
+                device.petId.safeZones && device.petId.safeZones.length > 0,
+            }
+          : null,
+        owner: device.owner
+          ? {
+              name: device.owner.name,
+              phone: device.owner.phone,
+              hasPhone: !!device.owner.phone,
+            }
+          : null,
+        configReady: configReady,
+        canSendConfig: configReady && mqttService.getConnectionStatus(),
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Trigger config send từ web (no auth)
+app.get("/debug/send-config/:deviceId", async (req, res) => {
+  try {
+    const deviceId = req.params.deviceId;
+
+    console.log(`🔧 Manual config send triggered for: ${deviceId}`);
+
+    // Kiểm tra device
+    const Device = require("./models/device");
+    const device = await Device.findOne({ deviceId: deviceId });
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found",
+      });
+    }
+
+    // Gửi config ngay lập tức
+    await mqttService.manualPublishConfig(deviceId);
+
+    // Cập nhật trạng thái
+    device.configSent = true;
+    device.lastConfigSent = new Date();
+    await device.save();
+
+    res.json({
+      success: true,
+      message: "Config sent to device via MQTT",
+      deviceId: deviceId,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// Kiểm tra tất cả devices
 app.get("/debug/devices", async (req, res) => {
   try {
     const Device = require("./models/device");
     const devices = await Device.find({})
       .populate("petId", "name")
       .populate("owner", "phone")
-      .limit(10);
+      .limit(20)
+      .sort({ createdAt: -1 });
 
     res.json({
       total: devices.length,
+      mqttConnected: mqttService.getConnectionStatus(),
       devices: devices.map((d) => ({
         deviceId: d.deviceId,
         petId: d.petId?._id,
         petName: d.petId?.name,
         ownerPhone: d.owner?.phone,
         isActive: d.isActive,
+        configSent: d.configSent,
+        lastSeen: d.lastSeen,
         createdAt: d.createdAt,
       })),
     });
@@ -127,10 +239,58 @@ app.get("/debug/device/:deviceId", async (req, res) => {
         isActive: device.isActive,
         configSent: device.configSent,
         lastSeen: device.lastSeen,
+        lastConfigSent: device.lastConfigSent,
       },
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Test MQTT connection
+app.get("/debug/test-mqtt/:deviceId", async (req, res) => {
+  try {
+    const deviceId = req.params.deviceId;
+
+    // Test data
+    const testData = {
+      test: true,
+      deviceId: deviceId,
+      timestamp: new Date().toISOString(),
+      message: "Test from server debug endpoint",
+      server: process.env.SERVER_URL || "https://pettracking2.onrender.com",
+    };
+
+    // Publish test message
+    const topic = `pets/${deviceId}/test`;
+    mqttService.client.publish(
+      topic,
+      JSON.stringify(testData),
+      { qos: 1 },
+      (err) => {
+        if (err) {
+          return res.status(500).json({
+            success: false,
+            message: "MQTT publish failed",
+            error: err.message,
+          });
+        }
+
+        res.json({
+          success: true,
+          message: "Test message sent via MQTT",
+          deviceId: deviceId,
+          topic: topic,
+          data: testData,
+          mqttConnected: mqttService.getConnectionStatus(),
+        });
+      }
+    );
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
@@ -162,18 +322,42 @@ connectDB();
 const PORT = process.env.PORT || 10000;
 
 const server = app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 HTTP Server running on port ${PORT}`);
-  console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
-  console.log(`💓 Health check: http://0.0.0.0:${PORT}/health`);
-  console.log(`🔧 ESP32 Test: GET /api/devices/test/{deviceId}`);
-  console.log(`🔧 ESP32 Config: GET /api/devices/config/{deviceId}`);
-  console.log(`📤 Publish Config: POST /api/devices/config/publish/{deviceId}`);
-  console.log(`\n📡 MQTT Topics:`);
-  console.log(`   • pets/{deviceId}/location`);
-  console.log(`   • pets/{deviceId}/config`);
-  console.log(`\n🔧 Debug Endpoints:`);
-  console.log(`   • GET /debug/devices`);
-  console.log(`   • GET /debug/device/{deviceId}`);
+  console.log(`
+  🚀 PET TRACKER SERVER STARTED
+  ==========================================
+  🌐 HTTP Server: http://0.0.0.0:${PORT}
+  📡 Server URL: ${
+    process.env.SERVER_URL || "https://pettracking2.onrender.com"
+  }
+  ==========================================
+  
+  🔧 MAIN ENDPOINTS:
+  💓 Health Check: GET /health
+  📱 Device Config: GET /api/devices/config/{deviceId}
+  🔍 Device Test: GET /api/devices/test/{deviceId}
+  🚀 Trigger Config: POST /api/devices/trigger-config/{deviceId}
+  
+  🔧 DEBUG ENDPOINTS:
+  📊 MQTT Status: GET /debug/mqtt-status
+  📱 Device Info: GET /debug/device-config/{deviceId}
+  🚀 Send Config: GET /debug/send-config/{deviceId}
+  📋 All Devices: GET /debug/devices
+  🔍 Device Detail: GET /debug/device/{deviceId}
+  🧪 Test MQTT: GET /debug/test-mqtt/{deviceId}
+  
+  📡 MQTT BROKER:
+  🔗 Broker: u799c202.ala.dedicated.aws.emqxcloud.com:1883
+  👤 Username: duytan
+  📌 Topics:
+      • pets/{deviceId}/location (subscribe)
+      • pets/{deviceId}/config (publish with retain)
+      • pets/{deviceId}/status (subscribe)
+      • pets/{deviceId}/alert (subscribe)
+  
+  ==========================================
+  ✅ Server ready to receive ESP32 connections!
+  ==========================================
+  `);
 });
 
 // Graceful shutdown
