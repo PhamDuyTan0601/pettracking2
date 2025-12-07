@@ -22,7 +22,7 @@ class MQTTService {
         location: "pets/+/location",
         status: "pets/+/status",
         alert: "pets/+/alert",
-        config: "pets/+/config", // ✅ THÊM TOPIC CONFIG
+        // KHÔNG subscribe config vì server publish topic này
       },
     };
 
@@ -91,6 +91,8 @@ class MQTTService {
         }
       });
     });
+
+    console.log("ℹ️  Server will PUBLISH to: pets/+/config (not subscribe)");
   }
 
   async handleMessage(topic, message) {
@@ -113,12 +115,8 @@ class MQTTService {
           await this.handleAlert(deviceId, payload);
           break;
 
-        case topic.includes("/config"):
-          await this.handleConfigMessage(deviceId, payload);
-          break;
-
         default:
-          console.log("📝 Unknown topic:", topic);
+          console.log("📝 Unknown topic (ignoring):", topic);
       }
     } catch (error) {
       console.error("❌ Error processing MQTT message:", error);
@@ -201,26 +199,12 @@ class MQTTService {
     }
   }
 
-  async handleConfigMessage(deviceId, data) {
-    try {
-      console.log(`⚙️ Config message for device: ${deviceId}`);
-      console.log("Config data:", data);
-
-      // Nếu ESP32 gửi request config (không phổ biến nhưng có thể)
-      if (data.command === "REQUEST_CONFIG" || data.request === "config") {
-        console.log(`📥 ${deviceId} is requesting config`);
-        await this.sendConfigToDevice(deviceId);
-      } else {
-        console.log(`ℹ️  Config message from ${deviceId} (not a request)`);
-      }
-    } catch (error) {
-      console.error("❌ Error handling config message:", error);
-    }
-  }
-
   async sendConfigToDevice(deviceId) {
     try {
       console.log(`⚙️ Preparing config for device: ${deviceId}`);
+
+      // 🚨 FIX: Kiểm tra và sửa deviceId nếu sai
+      deviceId = this.validateDeviceId(deviceId);
 
       const device = await Device.findOne({
         deviceId,
@@ -256,7 +240,7 @@ class MQTTService {
 
       const config = {
         success: true,
-        deviceId: device.deviceId,
+        deviceId: device.deviceId, // Đảm bảo deviceId đúng
         petId: device.petId._id,
         petName: device.petId.name,
         phoneNumber: device.owner.phone,
@@ -266,6 +250,7 @@ class MQTTService {
         updateInterval: 30000,
         timestamp: new Date().toISOString(),
         message: "Configuration from Pet Tracker Server",
+        _source: "server", // Thêm identifier để tránh loop
       };
 
       if (safeZoneInfo) {
@@ -279,10 +264,19 @@ class MQTTService {
 
       // Publish config
       this.publishConfig(deviceId, config);
-      console.log(`✅ Config sent to ${deviceId}`);
     } catch (error) {
       console.error("❌ Error sending config:", error);
     }
+  }
+
+  validateDeviceId(deviceId) {
+    // 🚨 FIX: Nếu deviceId sai, tự động sửa
+    if (deviceId === "ESP32_EC8A75B865E4") {
+      console.log(`⚠️  WARNING: Wrong deviceId detected: ${deviceId}`);
+      console.log(`   Auto-correcting to: ESP32_68C2470B65F4`);
+      return "ESP32_68C2470B65F4";
+    }
+    return deviceId;
   }
 
   publishConfig(deviceId, config) {
@@ -291,16 +285,38 @@ class MQTTService {
       return;
     }
 
+    // 🚨 FIX: Đảm bảo deviceId đúng
+    deviceId = this.validateDeviceId(deviceId);
+
+    // Đảm bảo config.deviceId khớp
+    config.deviceId = deviceId;
+
     const topic = `pets/${deviceId}/config`;
+
+    console.log(`\n🔍 DEBUG PUBLISH CONFIG:`);
+    console.log(`   Topic: ${topic}`);
+    console.log(`   Config deviceId: ${config.deviceId}`);
+
+    if (topic.includes("ESP32_EC8A75B865E4")) {
+      console.log(`❌❌❌ CRITICAL: Trying to publish to WRONG device!`);
+      console.log(`   Topic contains wrong device ID!`);
+      return;
+    }
+
     this.client.publish(
       topic,
       JSON.stringify(config),
       { qos: 1, retain: true },
       (err) => {
         if (err) {
-          console.error(`❌ Failed to publish config to ${deviceId}:`, err);
+          console.error(`❌ Failed to publish config:`, err);
         } else {
-          console.log(`📤 Config published to ${topic} (retained)`);
+          console.log(`✅ Published config to: ${topic}`);
+          console.log(`   Pet: ${config.petName}`);
+          console.log(`   Phone: ${config.phoneNumber}`);
+          if (config.safeZone) {
+            console.log(`   Safe Zone: ${config.safeZone.name}`);
+          }
         }
       }
     );

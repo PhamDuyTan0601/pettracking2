@@ -64,7 +64,10 @@ router.post("/register", auth, async (req, res) => {
 // ==============================
 router.get("/pet/:deviceId", async (req, res) => {
   try {
-    const { deviceId } = req.params;
+    let { deviceId } = req.params;
+
+    // 🚨 FIX: Sửa deviceId nếu sai
+    deviceId = fixDeviceId(deviceId);
 
     console.log("🔍 Looking up pet for device:", deviceId);
 
@@ -122,11 +125,14 @@ router.get("/my-devices", auth, async (req, res) => {
 });
 
 // ==============================
-// 🆕 ENDPOINT MỚI: ESP32 lấy thông tin cấu hình (petId, phoneNumber, safeZone)
+// 🆕 ENDPOINT: ESP32 lấy thông tin cấu hình
 // ==============================
 router.get("/config/:deviceId", async (req, res) => {
   try {
-    const { deviceId } = req.params;
+    let { deviceId } = req.params;
+
+    // 🚨 FIX: Sửa deviceId nếu sai
+    deviceId = fixDeviceId(deviceId);
 
     console.log("🔧 ESP32 requesting config for device:", deviceId);
 
@@ -134,7 +140,7 @@ router.get("/config/:deviceId", async (req, res) => {
       deviceId,
       isActive: true,
     })
-      .populate("petId", "name species breed safeZones") // ✅ THÊM safeZones
+      .populate("petId", "name species breed safeZones")
       .populate("owner", "name phone");
 
     if (!device) {
@@ -189,10 +195,10 @@ router.get("/config/:deviceId", async (req, res) => {
       deviceId: device.deviceId,
       petId: device.petId._id,
       petName: device.petId.name,
-      phoneNumber: device.owner.phone, // SỐ ĐIỆN THOẠI
+      phoneNumber: device.owner.phone,
       ownerName: device.owner.name,
       serverUrl: "https://pettracking2.onrender.com",
-      updateInterval: 30000, // 30 giây
+      updateInterval: 30000,
       timestamp: new Date().toISOString(),
     };
 
@@ -216,13 +222,16 @@ router.get("/config/:deviceId", async (req, res) => {
 // ==============================
 router.post("/config/publish/:deviceId", auth, async (req, res) => {
   try {
-    const { deviceId } = req.params;
+    let { deviceId } = req.params;
+
+    // 🚨 FIX: Sửa deviceId nếu sai
+    deviceId = fixDeviceId(deviceId);
 
     console.log("📤 Publishing config to device:", deviceId);
 
     const device = await Device.findOne({
       deviceId,
-      owner: req.user._id, // Chỉ owner mới publish được
+      owner: req.user._id,
       isActive: true,
     })
       .populate("petId", "name species breed safeZones")
@@ -265,6 +274,7 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
       serverUrl: "https://pettracking2.onrender.com",
       updateInterval: 30000,
       timestamp: new Date().toISOString(),
+      message: "Manual config from web interface",
     };
 
     if (safeZoneInfo) {
@@ -296,33 +306,16 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
 });
 
 // ==============================
-// 🔄 FORCE RESEND CONFIG
+// 🆕 FIX DEVICE ID HELPER
 // ==============================
-router.post("/config/resend/:deviceId", auth, async (req, res) => {
-  try {
-    const { deviceId } = req.params;
-
-    // Reset config sent flag
-    await Device.findOneAndUpdate(
-      { deviceId, owner: req.user._id },
-      {
-        configSent: false,
-        lastConfigSent: null,
-      }
-    );
-
-    res.json({
-      success: true,
-      message:
-        "Config reset successful. Next location data will trigger config send.",
-    });
-  } catch (error) {
-    console.error("❌ Reset config error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+function fixDeviceId(deviceId) {
+  // 🚨 FIX: Nếu deviceId sai, tự động sửa
+  if (deviceId === "ESP32_EC8A75B865E4") {
+    console.log(`⚠️  FIX: Wrong deviceId in request: ${deviceId}`);
+    console.log(`   Correcting to: ESP32_68C2470B65F4`);
+    return "ESP32_68C2470B65F4";
   }
-});
+  return deviceId;
+}
 
 module.exports = router;
