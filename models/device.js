@@ -22,6 +22,13 @@ const deviceSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    configSent: {
+      type: Boolean,
+      default: false,
+    },
+    lastConfigSent: {
+      type: Date,
+    },
     lastSeen: {
       type: Date,
       default: Date.now,

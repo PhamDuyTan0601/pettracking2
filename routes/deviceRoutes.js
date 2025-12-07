@@ -3,6 +3,7 @@ const Device = require("../models/device");
 const Pet = require("../models/pet");
 const User = require("../models/user");
 const auth = require("../middleware/authMiddleware");
+const mqttService = require("../mqttSubscriber");
 
 const router = express.Router();
 
@@ -32,6 +33,7 @@ router.post("/register", auth, async (req, res) => {
         petId,
         owner: req.user._id,
         isActive: true,
+        configSent: false,
         lastSeen: new Date(),
       },
       { upsert: true, new: true }
@@ -205,6 +207,120 @@ router.get("/config/:deviceId", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server error while fetching device config",
+    });
+  }
+});
+
+// ==============================
+// 🆕 PUBLISH CONFIG TO DEVICE VIA MQTT
+// ==============================
+router.post("/config/publish/:deviceId", auth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    console.log("📤 Publishing config to device:", deviceId);
+
+    const device = await Device.findOne({
+      deviceId,
+      owner: req.user._id, // Chỉ owner mới publish được
+      isActive: true,
+    })
+      .populate("petId", "name species breed safeZones")
+      .populate("owner", "name phone");
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found or access denied",
+      });
+    }
+
+    // Prepare config
+    let safeZoneInfo = null;
+    if (device.petId.safeZones && device.petId.safeZones.length > 0) {
+      const activeZone =
+        device.petId.safeZones.find((zone) => zone.isActive) ||
+        device.petId.safeZones[0];
+
+      if (activeZone) {
+        safeZoneInfo = {
+          center: {
+            lat: activeZone.center.lat,
+            lng: activeZone.center.lng,
+          },
+          radius: activeZone.radius,
+          name: activeZone.name,
+          isActive: activeZone.isActive,
+        };
+      }
+    }
+
+    const config = {
+      success: true,
+      deviceId: device.deviceId,
+      petId: device.petId._id,
+      petName: device.petId.name,
+      phoneNumber: device.owner.phone,
+      ownerName: device.owner.name,
+      serverUrl: "https://pettracking2.onrender.com",
+      updateInterval: 30000,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (safeZoneInfo) {
+      config.safeZone = safeZoneInfo;
+    }
+
+    // Publish to MQTT
+    mqttService.publishConfig(deviceId, config);
+
+    // Update device
+    device.configSent = true;
+    device.lastConfigSent = new Date();
+    await device.save();
+
+    console.log("✅ Config published to:", deviceId);
+
+    res.json({
+      success: true,
+      message: "Config published successfully",
+      config,
+    });
+  } catch (error) {
+    console.error("❌ Publish config error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// ==============================
+// 🔄 FORCE RESEND CONFIG
+// ==============================
+router.post("/config/resend/:deviceId", auth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    // Reset config sent flag
+    await Device.findOneAndUpdate(
+      { deviceId, owner: req.user._id },
+      {
+        configSent: false,
+        lastConfigSent: null,
+      }
+    );
+
+    res.json({
+      success: true,
+      message:
+        "Config reset successful. Next location data will trigger config send.",
+    });
+  } catch (error) {
+    console.error("❌ Reset config error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
     });
   }
 });

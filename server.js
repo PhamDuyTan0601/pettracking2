@@ -1,4 +1,3 @@
-// server.js
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -10,7 +9,7 @@ const mqttService = require("./mqttSubscriber");
 const app = express();
 
 // ================================
-// ✅ CORS CONFIG - CHO VERCEL FRONTEND
+// ✅ CORS CONFIG
 // ================================
 app.use(
   cors({
@@ -18,7 +17,7 @@ app.use(
       "http://localhost:3000",
       "https://pet-mu-seven.vercel.app",
       "https://trackingsytem06.vercel.app",
-      "*", // Tạm thời cho testing
+      "*",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -29,11 +28,11 @@ app.use(
 app.use(express.json());
 
 // ================================
-// 🔗 ROUTES - THÊM safeZoneRoutes
+// 🔗 ROUTES
 // ================================
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/pets", require("./routes/petRoutes"));
-app.use("/api/pets", require("./routes/safeZoneRoutes")); // ✅ THÊM DÒNG NÀY
+app.use("/api/pets", require("./routes/safeZoneRoutes"));
 app.use("/api/petData", require("./routes/petDataRoutes"));
 app.use("/api/devices", require("./routes/deviceRoutes"));
 
@@ -48,10 +47,10 @@ app.get("/", (req, res) => {
     timestamp: new Date().toISOString(),
     database:
       mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
-    mqtt: mqttService.client ? "Connected" : "Disconnected",
+    mqtt: mqttService.getConnectionStatus() ? "Connected" : "Disconnected",
     status: "healthy",
-    version: "1.2.0", // Tăng version
-    features: ["safe-zones", "device-config", "mqtt-realtime"],
+    version: "1.3.0",
+    features: ["auto-config", "safe-zones", "mqtt-realtime"],
   });
 });
 
@@ -62,7 +61,7 @@ app.get("/health", (req, res) => {
     uptime: process.uptime(),
     database:
       mongoose.connection.readyState === 1 ? "connected" : "disconnected",
-    mqtt: mqttService.client ? "connected" : "disconnected",
+    mqtt: mqttService.getConnectionStatus() ? "connected" : "disconnected",
   });
 });
 
@@ -79,7 +78,7 @@ const connectDB = async () => {
     console.log("✅ MongoDB Connected Successfully");
 
     // Khởi động MQTT Service sau khi DB connected
-    await mqttService.connect();
+    mqttService.connect();
   } catch (error) {
     console.log("❌ MongoDB Connection Error:", error.message);
     console.log("⚠️  Server continuing without MongoDB...");
@@ -98,6 +97,10 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`🌐 Server URL: http://0.0.0.0:${PORT}`);
   console.log(`💓 Health check: http://0.0.0.0:${PORT}/health`);
   console.log(`🔧 ESP32 Config: GET /api/devices/config/{deviceId}`);
+  console.log(`📤 Publish Config: POST /api/devices/config/publish/{deviceId}`);
+  console.log(`\n📡 MQTT Topics:`);
+  console.log(`   • pets/{deviceId}/location`);
+  console.log(`   • pets/{deviceId}/config`);
 });
 
 // Graceful shutdown

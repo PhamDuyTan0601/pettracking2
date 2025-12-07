@@ -1,4 +1,3 @@
-// mqttSubscriber.js
 const mqtt = require("mqtt");
 const mongoose = require("mongoose");
 const PetData = require("./models/petData");
@@ -149,6 +148,14 @@ class MQTTService {
       await device.save();
 
       console.log(`📍 Location saved for ${deviceId} → ${device.petId.name}`);
+
+      // 🔥 AUTO-SEND CONFIG khi nhận location đầu tiên
+      if (!device.configSent) {
+        await this.sendConfigToDevice(deviceId);
+        device.configSent = true;
+        device.lastConfigSent = new Date();
+        await device.save();
+      }
     } catch (error) {
       console.error("❌ Error saving location data:", error);
     }
@@ -177,6 +184,64 @@ class MQTTService {
       // Implement alerts here
     } catch (error) {
       console.error("❌ Error handling alert:", error);
+    }
+  }
+
+  async sendConfigToDevice(deviceId) {
+    try {
+      const device = await Device.findOne({
+        deviceId,
+        isActive: true,
+      })
+        .populate("petId", "name species breed safeZones")
+        .populate("owner", "name phone");
+
+      if (!device) {
+        console.log(`❌ Device not found: ${deviceId}`);
+        return;
+      }
+
+      // Prepare config
+      let safeZoneInfo = null;
+      if (device.petId.safeZones && device.petId.safeZones.length > 0) {
+        const activeZone =
+          device.petId.safeZones.find((zone) => zone.isActive) ||
+          device.petId.safeZones[0];
+
+        if (activeZone) {
+          safeZoneInfo = {
+            center: {
+              lat: activeZone.center.lat,
+              lng: activeZone.center.lng,
+            },
+            radius: activeZone.radius,
+            name: activeZone.name,
+            isActive: activeZone.isActive,
+          };
+        }
+      }
+
+      const config = {
+        success: true,
+        deviceId: device.deviceId,
+        petId: device.petId._id,
+        petName: device.petId.name,
+        phoneNumber: device.owner.phone,
+        ownerName: device.owner.name,
+        serverUrl: "https://pettracking2.onrender.com",
+        updateInterval: 30000,
+        timestamp: new Date().toISOString(),
+      };
+
+      if (safeZoneInfo) {
+        config.safeZone = safeZoneInfo;
+      }
+
+      // Publish config
+      this.publishConfig(deviceId, config);
+      console.log(`⚙️ Auto-sent config to ${deviceId}`);
+    } catch (error) {
+      console.error("❌ Error sending config:", error);
     }
   }
 
