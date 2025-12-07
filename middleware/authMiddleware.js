@@ -14,8 +14,16 @@ const auth = async (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, SECRET_KEY);
 
-    // SỬA LỖI: decoded.userId thay vì decoded.id
-    const user = await User.findById(decoded.userId);
+    // SỬA: Kiểm tra cả decoded.userId và decoded.id để hỗ trợ cả hai cách
+    const userId = decoded.userId || decoded.id;
+
+    if (!userId) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid token structure" });
+    }
+
+    const user = await User.findById(userId);
     if (!user) {
       return res
         .status(401)

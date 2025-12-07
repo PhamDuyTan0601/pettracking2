@@ -1,12 +1,30 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
+const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
 // Import MQTT Service
 const mqttService = require("./mqttSubscriber");
 
 const app = express();
+
+// ================================
+// ⚡ RATE LIMITING
+// ================================
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: {
+    success: false,
+    message: "Too many requests from this IP, please try again later",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Áp dụng rate limiting cho API routes
+app.use("/api/", limiter);
 
 // ================================
 // ✅ CORS CONFIG
@@ -314,7 +332,37 @@ const connectDB = async () => {
   }
 };
 
+// Database event listeners
+mongoose.connection.on("error", (err) => {
+  console.error("MongoDB connection error:", err);
+});
+
+mongoose.connection.on("disconnected", () => {
+  console.log("MongoDB disconnected");
+});
+
+mongoose.connection.on("reconnected", () => {
+  console.log("MongoDB reconnected");
+});
+
 connectDB();
+
+// ================================
+// 🚨 ERROR HANDLER MIDDLEWARE (Global)
+// ================================
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+
+  const statusCode = err.statusCode || 500;
+  const message = err.message || "Internal Server Error";
+
+  res.status(statusCode).json({
+    success: false,
+    message: message,
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+  });
+});
 
 // ================================
 // 🚀 START SERVER
@@ -363,9 +411,32 @@ const server = app.listen(PORT, "0.0.0.0", () => {
 // Graceful shutdown
 process.on("SIGTERM", () => {
   console.log("🛑 SIGTERM received, shutting down gracefully");
+
+  // Close MQTT connection
+  if (mqttService.client) {
+    mqttService.client.end();
+  }
+
   server.close(() => {
     console.log("✅ Server closed");
-    process.exit(0);
+    mongoose.connection.close(false, () => {
+      console.log("✅ MongoDB connection closed");
+      process.exit(0);
+    });
+  });
+});
+
+process.on("SIGINT", () => {
+  console.log("🛑 SIGINT received, shutting down");
+
+  if (mqttService.client) {
+    mqttService.client.end();
+  }
+
+  server.close(() => {
+    mongoose.connection.close(false, () => {
+      process.exit(0);
+    });
   });
 });
 
