@@ -164,9 +164,15 @@ class MQTTService {
         return null;
       }
 
-      // Nếu pet đã có safe zone, không tạo mới
-      if (pet.safeZones && pet.safeZones.length > 0) {
-        console.log(`ℹ️ Pet ${pet.name} đã có safe zone, không tạo mới`);
+      // 🆕 CÁCH CHÍNH XÁC: Kiểm tra xem pet đã có safe zone nào có autoCreated = true chưa
+      const hasAutoCreatedZone =
+        pet.safeZones &&
+        pet.safeZones.some((zone) => zone.autoCreated === true);
+
+      if (hasAutoCreatedZone) {
+        console.log(
+          `ℹ️ Pet ${pet.name} đã có safe zone tự động tạo, không tạo mới`
+        );
         return null;
       }
 
@@ -181,6 +187,7 @@ class MQTTService {
         isActive: true,
         isPrimary: true, // Đánh dấu là safe zone chính
         autoCreated: true, // Đánh dấu là tự động tạo
+        notes: "Tự động tạo từ vị trí đầu tiên ESP32 gửi về",
         createdAt: new Date(),
       };
 
@@ -194,6 +201,7 @@ class MQTTService {
       console.log(`   Vị trí: ${latitude}, ${longitude}`);
       console.log(`   Bán kính: 100m`);
       console.log(`   Tự động tạo: CÓ`);
+      console.log(`   Thời gian: ${new Date().toLocaleTimeString("vi-VN")}`);
 
       return safeZoneData;
     } catch (error) {
@@ -202,7 +210,7 @@ class MQTTService {
     }
   }
 
-  // 🔥 FIXED: HÀM XỬ LÝ LOCATION - LUÔN GỬI CONFIG + TẠO SAFE ZONE TỪ VỊ TRÍ ĐẦU TIÊN
+  // 🔥 SỬA: HÀM XỬ LÝ LOCATION - CHỈ TẠO SAFE ZONE KHI PET CHƯA CÓ
   async handleLocationData(deviceId, data) {
     try {
       console.log(`📍 Processing location for device: ${deviceId}`);
@@ -226,27 +234,28 @@ class MQTTService {
 
       await petData.save();
 
-      // 🆕 KIỂM TRA XEM ĐÂY CÓ PHẢI LÀ VỊ TRÍ ĐẦU TIÊN KHÔNG
-      // Đếm số lượng location của pet này
-      const locationCount = await PetData.countDocuments({
-        petId: device.petId._id,
-      });
+      // 🆕 LOGIC MỚI: Kiểm tra và tạo safe zone nếu pet chưa có safe zone autoCreated
+      const Pet = require("./models/pet");
+      const pet = await Pet.findById(device.petId._id);
 
-      console.log(
-        `📊 Location count for pet ${device.petId.name}: ${locationCount}`
-      );
+      if (pet) {
+        const hasAutoCreatedZone =
+          pet.safeZones &&
+          pet.safeZones.some((zone) => zone.autoCreated === true);
 
-      // Nếu đây là location ĐẦU TIÊN (count = 1)
-      if (locationCount === 1) {
-        console.log(`🎯 ĐÂY LÀ VỊ TRÍ ĐẦU TIÊN CỦA PET!`);
+        if (!hasAutoCreatedZone) {
+          console.log(
+            `🎯 PET CHƯA CÓ SAFE ZONE TỰ ĐỘNG TẠO, TẠO MỚI TỪ VỊ TRÍ NÀY`
+          );
 
-        // Tạo safe zone từ vị trí đầu tiên
-        await this.createSafeZoneFromFirstLocation(
-          deviceId,
-          device.petId._id,
-          data.latitude,
-          data.longitude
-        );
+          // Tạo safe zone từ vị trí hiện tại (vị trí đầu tiên được ghi nhận)
+          await this.createSafeZoneFromFirstLocation(
+            deviceId,
+            device.petId._id,
+            data.latitude,
+            data.longitude
+          );
+        }
       }
 
       // Update device
@@ -403,7 +412,12 @@ class MQTTService {
       // Lấy thông tin vùng an toàn
       let safeZoneInfo = null;
       if (device.petId.safeZones && device.petId.safeZones.length > 0) {
+        // Ưu tiên safe zone autoCreated (tự động tạo từ vị trí đầu tiên)
+        const autoCreatedZone = device.petId.safeZones.find(
+          (zone) => zone.autoCreated === true
+        );
         const activeZone =
+          autoCreatedZone ||
           device.petId.safeZones.find((zone) => zone.isActive) ||
           device.petId.safeZones[0];
 
@@ -416,6 +430,7 @@ class MQTTService {
             radius: activeZone.radius || 100,
             name: activeZone.name || "Safe Zone",
             isActive: activeZone.isActive !== false,
+            autoCreated: activeZone.autoCreated || false,
           };
         }
       }
@@ -445,6 +460,9 @@ class MQTTService {
         console.log(
           `📍 Safe zone included: ${safeZoneInfo.name} (${safeZoneInfo.radius}m)`
         );
+        if (safeZoneInfo.autoCreated) {
+          console.log(`   ⚡ Loại: Tự động tạo từ vị trí đầu tiên`);
+        }
       }
 
       console.log(`✅ Config prepared for ${deviceId}:`);
