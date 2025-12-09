@@ -2,6 +2,7 @@ const mqtt = require("mqtt");
 const mongoose = require("mongoose");
 const PetData = require("./models/petData");
 const Device = require("./models/device");
+const Pet = require("./models/pet");
 
 class MQTTService {
   constructor() {
@@ -148,7 +149,7 @@ class MQTTService {
     }
   }
 
-  // 🔥 FIXED: HÀM XỬ LÝ LOCATION - LUÔN GỬI CONFIG
+  // HÀM XỬ LÝ LOCATION - LUÔN GỬI CONFIG
   async handleLocationData(deviceId, data) {
     try {
       console.log(`📍 Processing location for device: ${deviceId}`);
@@ -178,13 +179,13 @@ class MQTTService {
 
       console.log(`📍 Location saved for ${deviceId} → ${device.petId.name}`);
 
-      // 🔥 🔥 🔥 QUAN TRỌNG: LUÔN GỬI CONFIG KHI NHẬN LOCATION
+      // QUAN TRỌNG: LUÔN GỬI CONFIG KHI NHẬN LOCATION
       console.log(
         `⚙️ AUTO-SENDING CONFIG to ${deviceId} (triggered by location)`
       );
 
-      // Gửi config đến device
-      await this.sendConfigToDevice(deviceId);
+      // Gửi config đến device với data tươi từ DB
+      await this.sendFreshConfigToDevice(deviceId);
 
       // Cập nhật trạng thái
       device.configSent = true;
@@ -197,7 +198,7 @@ class MQTTService {
     }
   }
 
-  // 🔥 FIXED: HÀM XỬ LÝ STATUS - CHECK CONFIG REQUEST
+  // HÀM XỬ LÝ STATUS - CHECK CONFIG REQUEST
   async handleStatusUpdate(deviceId, data) {
     try {
       console.log(`🔋 Processing status for device: ${deviceId}`);
@@ -225,7 +226,7 @@ class MQTTService {
 
       console.log(`🔋 Status updated for ${deviceId}`);
 
-      // 🔥 Gửi config nếu device báo cần
+      // Gửi config nếu device báo cần
       if (
         data.needConfig === true ||
         data.configReceived === false ||
@@ -233,9 +234,9 @@ class MQTTService {
       ) {
         console.log(`⚙️ Device ${deviceId} needs config (from status message)`);
 
-        // Đợi 1 giây rồi gửi config
+        // Đợi 1 giây rồi gửi config với data tươi
         setTimeout(async () => {
-          await this.sendConfigToDevice(deviceId);
+          await this.sendFreshConfigToDevice(deviceId);
 
           // Cập nhật trạng thái
           device.configSent = true;
@@ -248,7 +249,7 @@ class MQTTService {
     }
   }
 
-  // 🔥 NEW: HÀM XỬ LÝ CONFIG REQUEST
+  // HÀM XỬ LÝ CONFIG REQUEST - DÙNG DATA TƯƠI
   async handleConfigRequest(deviceId, data) {
     try {
       console.log(`⚙️ Config request from ${deviceId}:`, data);
@@ -257,7 +258,7 @@ class MQTTService {
         deviceId,
         isActive: true,
       })
-        .populate("petId", "name species breed safeZones")
+        .populate("petId", "name")
         .populate("owner", "name phone");
 
       if (!device) {
@@ -265,8 +266,8 @@ class MQTTService {
         return;
       }
 
-      console.log(`⚙️ Sending config to ${deviceId} as requested`);
-      await this.sendConfigToDevice(deviceId);
+      console.log(`⚙️ Sending FRESH config to ${deviceId} as requested`);
+      await this.sendFreshConfigToDevice(deviceId);
 
       // Cập nhật trạng thái
       device.configSent = true;
@@ -295,16 +296,21 @@ class MQTTService {
     }
   }
 
-  // 🔥 FIXED: HÀM GỬI CONFIG ĐẾN DEVICE
-  async sendConfigToDevice(deviceId) {
+  // 🔥 HÀM MỚI: GỬI CONFIG VỚI DATA TƯƠI TỪ DB
+  async sendFreshConfigToDevice(deviceId) {
     try {
-      console.log(`⚙️ Preparing config for device: ${deviceId}`);
+      console.log(`⚙️ Preparing FRESH config for device: ${deviceId}`);
 
+      // Lấy device với fresh data từ DB
       const device = await Device.findOne({
         deviceId,
         isActive: true,
       })
-        .populate("petId", "name species breed safeZones")
+        .populate({
+          path: "petId",
+          select: "name species breed",
+          options: { readPreference: "primary" },
+        })
         .populate("owner", "name phone");
 
       if (!device) {
@@ -323,12 +329,24 @@ class MQTTService {
         return;
       }
 
-      // Lấy thông tin vùng an toàn
+      // 🔥 QUAN TRỌNG: Lấy thông tin safe zone TRỰC TIẾP từ DB
+      const freshPet = await Pet.findById(device.petId._id)
+        .select("safeZones name")
+        .lean();
+
+      if (!freshPet) {
+        console.log(`❌ Cannot fetch fresh pet data for ${deviceId}`);
+        return;
+      }
+
+      // Lấy thông tin vùng an toàn từ data tươi
       let safeZoneInfo = null;
-      if (device.petId.safeZones && device.petId.safeZones.length > 0) {
+      if (freshPet.safeZones && freshPet.safeZones.length > 0) {
         const activeZone =
-          device.petId.safeZones.find((zone) => zone.isActive) ||
-          device.petId.safeZones[0];
+          freshPet.safeZones.find((zone) => zone.isActive && zone.isPrimary) ||
+          freshPet.safeZones.find((zone) => zone.isActive) ||
+          freshPet.safeZones.find((zone) => zone.isPrimary) ||
+          freshPet.safeZones[0];
 
         if (activeZone && activeZone.center) {
           safeZoneInfo = {
@@ -339,14 +357,20 @@ class MQTTService {
             radius: activeZone.radius || 100,
             name: activeZone.name || "Safe Zone",
             isActive: activeZone.isActive !== false,
+            isPrimary: activeZone.isPrimary || false,
+            autoCreated: activeZone.autoCreated || false,
           };
+
+          console.log(
+            `📍 Fresh safe zone from DB for ${deviceId}: ${safeZoneInfo.name} (${safeZoneInfo.radius}m)`
+          );
         }
       }
 
-      // Tạo config message
+      // Tạo config message với data tươi
       const config = {
         success: true,
-        _source: "server",
+        _source: "server_fresh",
         deviceId: device.deviceId,
         petId: device.petId._id.toString(),
         petName: device.petId.name,
@@ -356,33 +380,52 @@ class MQTTService {
           process.env.SERVER_URL || "https://pettracking2.onrender.com",
         updateInterval: 30000,
         timestamp: new Date().toISOString(),
-        message: "Configuration from Pet Tracker Server",
-        configSentAt: device.lastConfigSent
-          ? device.lastConfigSent.toISOString()
-          : new Date().toISOString(),
+        message: "FRESH Configuration from Pet Tracker Server",
+        configSentAt: new Date().toISOString(),
+        dataFreshness: new Date().toISOString(),
+        mqttConfig: {
+          broker: "u799c202.ala.dedicated.aws.emqxcloud.com",
+          port: 1883,
+          username: "duytan",
+          password: "123456",
+          topics: {
+            location: `pets/${device.deviceId}/location`,
+            status: `pets/${device.deviceId}/status`,
+            alert: `pets/${device.deviceId}/alert`,
+            config: `pets/${device.deviceId}/config`,
+          },
+        },
       };
 
-      // Thêm safe zone nếu có
+      // Thêm safe zone nếu có (từ data tươi)
       if (safeZoneInfo) {
         config.safeZone = safeZoneInfo;
         console.log(
-          `📍 Safe zone included: ${safeZoneInfo.name} (${safeZoneInfo.radius}m)`
+          `📍 Fresh safe zone included for ${deviceId}: ${safeZoneInfo.name} (${safeZoneInfo.radius}m)`
         );
       }
 
-      console.log(`✅ Config prepared for ${deviceId}:`);
+      console.log(`✅ FRESH Config prepared for ${deviceId}:`);
       console.log(`   Pet: ${config.petName}`);
       console.log(`   Phone: ${config.phoneNumber}`);
       console.log(`   Has Safe Zone: ${!!config.safeZone}`);
+      console.log(`   Safe Zone Radius: ${config.safeZone?.radius || "none"}m`);
+      console.log(`   Data Source: Fresh database query`);
 
       // Publish config với retain flag
       this.publishConfig(deviceId, config);
     } catch (error) {
-      console.error("❌ Error sending config:", error);
+      console.error("❌ Error sending FRESH config:", error);
     }
   }
 
-  // 🔥 FIXED: HÀM PUBLISH CONFIG
+  // HÀM GỬI CONFIG ĐẾN DEVICE (backward compatibility)
+  async sendConfigToDevice(deviceId) {
+    // Gọi hàm mới để đảm bảo data tươi
+    await this.sendFreshConfigToDevice(deviceId);
+  }
+
+  // HÀM PUBLISH CONFIG
   publishConfig(deviceId, config) {
     if (!this.isConnected) {
       console.log("❌ MQTT not connected, cannot publish");
@@ -391,10 +434,11 @@ class MQTTService {
 
     const topic = `pets/${deviceId}/config`;
 
-    console.log(`\n📤 PUBLISHING CONFIG:`);
+    console.log(`\n📤 PUBLISHING FRESH CONFIG:`);
     console.log(`   Topic: ${topic}`);
     console.log(`   Device: ${config.deviceId}`);
     console.log(`   Pet: ${config.petName}`);
+    console.log(`   Safe Zone Radius: ${config.safeZone?.radius || "none"}m`);
 
     // Publish với retain: true để ESP32 nhận được ngay khi connect
     this.client.publish(
@@ -407,6 +451,7 @@ class MQTTService {
         } else {
           console.log(`✅ Config published to: ${topic}`);
           console.log(`   Retained: YES (ESP32 will get it immediately)`);
+          console.log(`   Data Freshness: ${config.dataFreshness}`);
         }
       }
     );
@@ -443,10 +488,10 @@ class MQTTService {
     return this.isConnected;
   }
 
-  // Helper để manual publish config
+  // Helper để manual publish config với data tươi
   async manualPublishConfig(deviceId) {
-    console.log(`🔧 Manual config publish for: ${deviceId}`);
-    await this.sendConfigToDevice(deviceId);
+    console.log(`🔧 Manual FRESH config publish for: ${deviceId}`);
+    await this.sendFreshConfigToDevice(deviceId);
   }
 }
 
