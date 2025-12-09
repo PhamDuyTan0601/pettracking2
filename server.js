@@ -25,7 +25,7 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" })); // Tăng limit cho request lớn
 
 // ================================
 // 🔗 ROUTES
@@ -49,13 +49,19 @@ app.get("/", (req, res) => {
       mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
     mqtt: mqttService.getConnectionStatus() ? "Connected" : "Disconnected",
     status: "healthy",
-    version: "1.3.0",
-    features: ["auto-config", "safe-zones", "mqtt-realtime"],
+    version: "2.1.0",
+    features: [
+      "auto-config",
+      "safe-zones",
+      "mqtt-realtime",
+      "safe-zones-cleanup",
+    ],
     endpoints: {
       health: "/health",
       deviceConfig: "/api/devices/config/{deviceId}",
       deviceTest: "/api/devices/test/{deviceId}",
       triggerConfig: "/api/devices/trigger-config/{deviceId}",
+      cleanup: "/api/devices/cleanup-safe-zones/{petId}",
       debug: "/debug/*",
     },
   });
@@ -75,7 +81,7 @@ app.get("/health", (req, res) => {
 });
 
 // ================================
-// 🔧 DEBUG ENDPOINTS
+// 🔧 DEBUG ENDPOINTS (ĐÃ CẬP NHẬT)
 // ================================
 app.get("/debug/mqtt-status", (req, res) => {
   res.json({
@@ -117,6 +123,7 @@ app.get("/debug/device-config/:deviceId", async (req, res) => {
               safeZonesCount: device.petId.safeZones?.length || 0,
               hasSafeZones:
                 device.petId.safeZones && device.petId.safeZones.length > 0,
+              hasTooManySafeZones: device.petId.safeZones?.length > 10,
             }
           : null,
         owner: device.owner
@@ -227,7 +234,7 @@ app.get("/debug/device/:deviceId", async (req, res) => {
           ? {
               name: device.petId.name,
               safeZonesCount: device.petId.safeZones?.length || 0,
-              safeZones: device.petId.safeZones,
+              safeZones: device.petId.safeZones?.slice(0, 5), // Chỉ hiển thị 5 zones đầu
             }
           : null,
         owner: device.owner
@@ -286,6 +293,152 @@ app.get("/debug/test-mqtt/:deviceId", async (req, res) => {
         });
       }
     );
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 🧹 Debug cleanup endpoint
+app.get("/debug/cleanup-pet/:petId", async (req, res) => {
+  try {
+    const { petId } = req.params;
+    const { keep = 5 } = req.query;
+
+    const Pet = require("./models/pet");
+    const pet = await Pet.findById(petId).populate("owner", "name email");
+
+    if (!pet) {
+      return res.status(404).json({
+        success: false,
+        message: "Pet not found",
+      });
+    }
+
+    const totalBefore = pet.safeZones.length;
+
+    // Sort by creation date
+    pet.safeZones.sort((a, b) => {
+      const dateA = a.createdAt || a._id.getTimestamp();
+      const dateB = b.createdAt || b._id.getTimestamp();
+      return new Date(dateB) - new Date(dateA);
+    });
+
+    const zonesToKeep = pet.safeZones.slice(0, parseInt(keep));
+    const zonesToDelete = pet.safeZones.slice(parseInt(keep));
+
+    pet.safeZones = zonesToKeep;
+    await pet.save();
+
+    // Trigger config update for associated devices
+    try {
+      const Device = require("./models/device");
+      const devices = await Device.find({ petId: petId, isActive: true });
+      devices.forEach((device) => {
+        setTimeout(() => {
+          mqttService.manualPublishConfig(device.deviceId);
+          console.log(
+            `⚙️ Auto-sent config to ${device.deviceId} after debug cleanup`
+          );
+        }, 1000);
+      });
+    } catch (mqttError) {
+      console.error("MQTT auto-config error after debug cleanup:", mqttError);
+    }
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${zonesToDelete.length} safe zones`,
+      pet: pet.name,
+      owner: pet.owner?.name,
+      stats: {
+        totalBefore,
+        totalAfter: zonesToKeep.length,
+        deleted: zonesToDelete.length,
+        kept: zonesToKeep.length,
+      },
+      zonesKept: zonesToKeep.map((z) => ({
+        id: z._id,
+        name: z.name,
+        radius: z.radius,
+        location: `${z.center?.lat?.toFixed(6)}, ${z.center?.lng?.toFixed(6)}`,
+        createdAt: z.createdAt || z._id.getTimestamp(),
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 📊 Debug safe zones stats
+app.get("/debug/safe-zones-stats", async (req, res) => {
+  try {
+    const Pet = require("./models/pet");
+
+    const pets = await Pet.find({})
+      .populate("owner", "name")
+      .select("name owner safeZones");
+
+    const stats = pets.map((pet) => ({
+      petId: pet._id,
+      petName: pet.name,
+      ownerName: pet.owner?.name,
+      totalZones: pet.safeZones.length,
+      activeZones: pet.safeZones.filter((z) => z.isActive).length,
+      hasTooManyZones: pet.safeZones.length > 10,
+      zonesSample: pet.safeZones
+        .sort((a, b) => {
+          const dateA = a.createdAt || a._id.getTimestamp();
+          const dateB = b.createdAt || b._id.getTimestamp();
+          return new Date(dateB) - new Date(dateA);
+        })
+        .slice(0, 3)
+        .map((z) => ({
+          name: z.name,
+          radius: z.radius,
+          createdAt: z.createdAt || z._id.getTimestamp(),
+        })),
+    }));
+
+    const summary = {
+      totalPets: pets.length,
+      petsWithTooManyZones: stats.filter((s) => s.hasTooManyZones).length,
+      totalSafeZones: stats.reduce((sum, pet) => sum + pet.totalZones, 0),
+      averageZonesPerPet: (
+        stats.reduce((sum, pet) => sum + pet.totalZones, 0) / pets.length
+      ).toFixed(2),
+    };
+
+    res.json({
+      success: true,
+      summary,
+      details: stats,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+// 🚨 EMERGENCY CLEANUP FOR ALL PETS
+app.get("/debug/emergency-cleanup-all", async (req, res) => {
+  try {
+    const Pet = require("./models/pet");
+
+    const result = await Pet.cleanupAllPetsSafeZones(5);
+
+    res.json({
+      success: true,
+      message: "Emergency cleanup completed",
+      ...result,
+    });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -366,6 +519,8 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   📱 Device Config: GET /api/devices/config/{deviceId}
   🔍 Device Test: GET /api/devices/test/{deviceId}
   🚀 Trigger Config: POST /api/devices/trigger-config/{deviceId}
+  🧹 Cleanup Safe Zones: POST /api/devices/cleanup-safe-zones/{petId}
+  📊 Safe Zones Info: GET /api/devices/safe-zones-info/{petId}
   
   🔧 DEBUG ENDPOINTS:
   📊 MQTT Status: GET /debug/mqtt-status
@@ -374,6 +529,9 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   📋 All Devices: GET /debug/devices
   🔍 Device Detail: GET /debug/device/{deviceId}
   🧪 Test MQTT: GET /debug/test-mqtt/{deviceId}
+  🧹 Cleanup Pet: GET /debug/cleanup-pet/{petId}
+  📊 Safe Zones Stats: GET /debug/safe-zones-stats
+  🚨 Emergency Cleanup: GET /debug/emergency-cleanup-all
   
   📡 MQTT BROKER:
   🔗 Broker: u799c202.ala.dedicated.aws.emqxcloud.com:1883
@@ -385,7 +543,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
       • pets/{deviceId}/alert (subscribe)
   
   ==========================================
-  ✅ Server ready to receive ESP32 connections!
+  ✅ Server ready with SAFE ZONES VALIDATION!
   ==========================================
   `);
 });
