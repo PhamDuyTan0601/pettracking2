@@ -1,401 +1,204 @@
 const mqtt = require("mqtt");
 
-console.log("🤖 ESP32 SEND & RECEIVE TEST");
-console.log("=".repeat(60));
-
-// ================================
-// 🧪 CONFIG - DÙNG SERVER CỦA BẠN
-// ================================
-const CONFIG = {
-  // MQTT Broker của bạn
-  mqttBroker: "mqtt://u799c202.ala.dedicated.aws.emqxcloud.com:1883",
-  mqttUsername: "duytan",
-  mqttPassword: "123456",
-
-  // Device ID của ESP32
+// Cấu hình MQTT của bạn
+const config = {
+  brokerUrl: "mqtt://u799c202.ala.dedicated.aws.emqxcloud.com:1883",
+  username: "duytan",
+  password: "123456",
   deviceId: "ESP32_68C2470B65F4",
 };
 
-// Biến lưu kết quả
-const testResults = {
-  mqttConnected: false,
-  subscribed: false,
-  messagesSent: 0,
-  messagesReceived: 0,
-  configReceived: false,
-  configData: null,
+console.log("🔧 MQTT Test Configuration:");
+console.log("==========================");
+console.log("Broker:", config.brokerUrl);
+console.log("Username:", config.username);
+console.log("Device ID:", config.deviceId);
+console.log("==========================\n");
+
+// Tạo topics
+const topics = {
+  location: `pets/${config.deviceId}/location`,
+  status: `pets/${config.deviceId}/status`,
+  config: `pets/${config.deviceId}/config`,
+  alert: `pets/${config.deviceId}/alert`,
+  test: `pets/${config.deviceId}/test`,
 };
 
-// ================================
-// 🚀 KẾT NỐI MQTT
-// ================================
-console.log("🔗 Connecting to MQTT...");
-console.log(`   Broker: ${CONFIG.mqttBroker}`);
-console.log(`   Username: ${CONFIG.mqttUsername}`);
-console.log(`   Device ID: ${CONFIG.deviceId}`);
-console.log("=".repeat(60));
-
-const client = mqtt.connect(CONFIG.mqttBroker, {
-  username: CONFIG.mqttUsername,
-  password: CONFIG.mqttPassword,
-  clientId: `esp32_test_${CONFIG.deviceId}_${Date.now()}`,
+// Kết nối MQTT
+console.log("🔗 Connecting to MQTT broker...");
+const client = mqtt.connect(config.brokerUrl, {
+  username: config.username,
+  password: config.password,
+  clientId: `test_client_${Date.now()}`,
   clean: true,
-  reconnectPeriod: 1000,
-  connectTimeout: 10000,
 });
 
-// ================================
-// 📡 XỬ LÝ SỰ KIỆN
-// ================================
 client.on("connect", () => {
-  console.log("\n✅ CONNECTED TO MQTT BROKER!");
-  testResults.mqttConnected = true;
+  console.log("✅ Connected to MQTT broker!\n");
 
-  // Subscribe to config topic để nhận config từ server
-  const configTopic = `pets/${CONFIG.deviceId}/config`;
-  client.subscribe(configTopic, { qos: 1 }, (err) => {
-    if (err) {
-      console.log(`❌ Failed to subscribe to ${configTopic}:`, err.message);
-    } else {
-      console.log(`✅ Subscribed to: ${configTopic}`);
-      testResults.subscribed = true;
-    }
+  // Subscribe các topics
+  Object.values(topics).forEach((topic) => {
+    client.subscribe(topic, { qos: 1 }, (err) => {
+      if (err) {
+        console.log(`❌ Failed to subscribe to ${topic}:`, err.message);
+      } else {
+        console.log(`✅ Subscribed to: ${topic}`);
+      }
+    });
   });
 
-  // Bắt đầu test sequence
-  startTestSequence();
+  // Gửi test config message
+  setTimeout(() => {
+    sendTestConfig();
+  }, 2000);
+
+  // Gửi test message
+  setTimeout(() => {
+    sendTestMessage();
+  }, 4000);
+
+  // Request location từ ESP32
+  setTimeout(() => {
+    requestLocation();
+  }, 6000);
 });
 
 client.on("message", (topic, message) => {
-  console.log(`\n📨 RECEIVED MESSAGE:`);
-  console.log(`   Topic: ${topic}`);
-  console.log(`   Time: ${new Date().toLocaleTimeString()}`);
-  console.log(`   Length: ${message.length} bytes`);
-
-  testResults.messagesReceived++;
-
+  console.log(`\n📨 Message received [${topic}]:`);
   try {
     const data = JSON.parse(message.toString());
-
-    // Hiển thị toàn bộ message
-    console.log("\n📦 FULL MESSAGE CONTENT:");
     console.log(JSON.stringify(data, null, 2));
 
-    // Phân tích loại message
-    if (topic.includes("/config")) {
-      console.log("\n🎯 CONFIG MESSAGE ANALYSIS:");
+    // Xử lý location data
+    if (topic === topics.location) {
+      console.log("📍 Location data received:");
+      console.log(`   Lat: ${data.latitude}, Lng: ${data.longitude}`);
+      console.log(`   Speed: ${data.speed} m/s`);
+      console.log(`   Battery: ${data.batteryLevel}%`);
+    }
 
-      if (data._source === "server" || data.success === true) {
-        console.log("✅ ✅ ✅ THIS IS A REAL CONFIG FROM SERVER! ✅ ✅ ✅");
-        testResults.configReceived = true;
-        testResults.configData = data;
+    // Xử lý status data
+    if (topic === topics.status) {
+      console.log("🔋 Device status:");
+      console.log(`   Battery: ${data.batteryLevel}%`);
+      console.log(`   RSSI: ${data.rssi} dBm`);
+      console.log(`   Config received: ${data.configReceived}`);
+      console.log(`   Need config: ${data.needConfig}`);
+    }
+  } catch (error) {
+    console.log("Raw message:", message.toString());
+  }
+});
 
-        console.log("\n📋 CONFIG SUMMARY:");
-        console.log("=".repeat(40));
-        console.log(`Pet Name: ${data.petName || "Not specified"}`);
-        console.log(`Phone: ${data.phoneNumber || "Not specified"}`);
-        console.log(`Owner: ${data.ownerName || "Not specified"}`);
-        console.log(`Update Interval: ${data.updateInterval || 30000}ms`);
-        console.log(`Server URL: ${data.serverUrl || "Not specified"}`);
+client.on("error", (error) => {
+  console.error("❌ MQTT Error:", error);
+});
 
-        if (data.safeZone) {
-          console.log(`Safe Zone: YES`);
-          console.log(
-            `   Center: ${data.safeZone.center.lat}, ${data.safeZone.center.lng}`
-          );
-          console.log(`   Radius: ${data.safeZone.radius}m`);
-          console.log(`   Name: ${data.safeZone.name}`);
-        } else {
-          console.log(`Safe Zone: NO`);
-        }
+client.on("close", () => {
+  console.log("🔌 MQTT connection closed");
+});
 
-        console.log(`Timestamp: ${data.timestamp}`);
-        console.log("=".repeat(40));
-      } else if (data.retained === true) {
-        console.log("⚠️  RETAINED MESSAGE (old test message):");
-        console.log(`   Message: ${data.message || "No message"}`);
-      } else if (data.type === "config_request") {
-        console.log("📤 Config request echo (sent by this test)");
+// Hàm gửi test config
+function sendTestConfig() {
+  const configData = {
+    success: true,
+    _source: "test_server",
+    deviceId: config.deviceId,
+    petId: "test_pet_123",
+    petName: "Test Buddy",
+    phoneNumber: "0987654321",
+    ownerName: "Test Owner",
+    serverUrl: "https://pettracking2.onrender.com",
+    updateInterval: 30000,
+    timestamp: new Date().toISOString(),
+    message: "Test configuration from server",
+    configSentAt: new Date().toISOString(),
+    safeZone: {
+      center: {
+        lat: 10.762622,
+        lng: 106.660172,
+      },
+      radius: 100,
+      name: "Test Safe Zone",
+      isActive: true,
+    },
+  };
+
+  console.log(`\n⚙️ Sending test config to ${topics.config}:`);
+  console.log(JSON.stringify(configData, null, 2));
+
+  client.publish(
+    topics.config,
+    JSON.stringify(configData),
+    { qos: 1, retain: true },
+    (err) => {
+      if (err) {
+        console.log("❌ Failed to publish config:", err.message);
       } else {
-        console.log("📝 Other config message");
+        console.log("✅ Test config published (retained)");
       }
     }
-  } catch (e) {
-    console.log("❌ Cannot parse JSON, raw message:");
-    console.log(message.toString());
-  }
-});
-
-client.on("error", (err) => {
-  console.log("❌ MQTT Error:", err.message);
-});
-
-// ================================
-// 🧪 TEST SEQUENCE - MÔ PHỎNG ESP32
-// ================================
-function startTestSequence() {
-  console.log("\n" + "=".repeat(60));
-  console.log("🚀 STARTING ESP32 TEST SEQUENCE");
-  console.log("=".repeat(60));
-
-  // Delay 2 giây để đảm bảo subscription hoạt động
-  setTimeout(() => {
-    // TEST 1: ESP32 gửi boot message
-    console.log("\n🧪 TEST 1: ESP32 BOOT MESSAGE");
-    console.log("=".repeat(40));
-
-    const bootMessage = {
-      deviceId: CONFIG.deviceId,
-      type: "boot",
-      message: "ESP32 booted up",
-      firmwareVersion: "1.0.0",
-      freeHeap: 250000,
-      timestamp: new Date().toISOString(),
-      needConfig: true, // Yêu cầu config
-    };
-
-    const bootTopic = `pets/${CONFIG.deviceId}/status`;
-
-    console.log("📤 ESP32 sending boot message:");
-    console.log(`   Topic: ${bootTopic}`);
-    console.log("   Data:", JSON.stringify(bootMessage, null, 2));
-
-    client.publish(
-      bootTopic,
-      JSON.stringify(bootMessage),
-      { qos: 1 },
-      (err) => {
-        if (err) {
-          console.log("❌ Publish failed:", err.message);
-        } else {
-          console.log("✅ Boot message sent");
-          testResults.messagesSent++;
-        }
-      }
-    );
-  }, 2000);
-
-  // TEST 2: ESP32 gửi config request
-  setTimeout(() => {
-    console.log("\n🧪 TEST 2: CONFIG REQUEST");
-    console.log("=".repeat(40));
-
-    const configRequest = {
-      deviceId: CONFIG.deviceId,
-      type: "config_request",
-      message: "ESP32 requesting configuration",
-      timestamp: new Date().toISOString(),
-      urgent: true,
-      requestId: `req_${Date.now()}`,
-    };
-
-    const configTopic = `pets/${CONFIG.deviceId}/config`;
-
-    console.log("📤 ESP32 sending config request:");
-    console.log(`   Topic: ${configTopic}`);
-    console.log("   Data:", JSON.stringify(configRequest, null, 2));
-
-    client.publish(
-      configTopic,
-      JSON.stringify(configRequest),
-      { qos: 1 },
-      (err) => {
-        if (err) {
-          console.log("❌ Publish failed:", err.message);
-        } else {
-          console.log("✅ Config request sent");
-          testResults.messagesSent++;
-        }
-      }
-    );
-  }, 4000);
-
-  // TEST 3: ESP32 gửi location data (triggers auto-config)
-  setTimeout(() => {
-    console.log("\n🧪 TEST 3: LOCATION DATA");
-    console.log("=".repeat(40));
-
-    const locationData = {
-      deviceId: CONFIG.deviceId,
-      type: "location",
-      latitude: 10.762622,
-      longitude: 106.660172,
-      speed: 0.5,
-      batteryLevel: 85,
-      accuracy: 12,
-      needConfig: true, // Yêu cầu config
-      timestamp: new Date().toISOString(),
-    };
-
-    const locationTopic = `pets/${CONFIG.deviceId}/location`;
-
-    console.log("📤 ESP32 sending location data:");
-    console.log(`   Topic: ${locationTopic}`);
-    console.log("   Data:", JSON.stringify(locationData, null, 2));
-
-    client.publish(
-      locationTopic,
-      JSON.stringify(locationData),
-      { qos: 1 },
-      (err) => {
-        if (err) {
-          console.log("❌ Publish failed:", err.message);
-        } else {
-          console.log("✅ Location data sent");
-          testResults.messagesSent++;
-
-          console.log("\n💡 Server should auto-send config now");
-          console.log("   (if device is registered and active)");
-        }
-      }
-    );
-  }, 6000);
-
-  // TEST 4: ESP32 gửi status update
-  setTimeout(() => {
-    console.log("\n🧪 TEST 4: STATUS UPDATE");
-    console.log("=".repeat(40));
-
-    const statusData = {
-      deviceId: CONFIG.deviceId,
-      type: "status",
-      batteryLevel: 82,
-      signalStrength: -65,
-      freeHeap: 245000,
-      uptime: 60,
-      needConfig: true, // Vẫn yêu cầu config nếu chưa có
-      timestamp: new Date().toISOString(),
-    };
-
-    const statusTopic = `pets/${CONFIG.deviceId}/status`;
-
-    console.log("📤 ESP32 sending status update:");
-    console.log(`   Topic: ${statusTopic}`);
-    console.log("   Data:", JSON.stringify(statusData, null, 2));
-
-    client.publish(
-      statusTopic,
-      JSON.stringify(statusData),
-      { qos: 1 },
-      (err) => {
-        if (err) {
-          console.log("❌ Publish failed:", err.message);
-        } else {
-          console.log("✅ Status update sent");
-          testResults.messagesSent++;
-        }
-      }
-    );
-  }, 8000);
-
-  // TEST 5: ESP32 gửi test alert
-  setTimeout(() => {
-    console.log("\n🧪 TEST 5: TEST ALERT");
-    console.log("=".repeat(40));
-
-    const alertData = {
-      deviceId: CONFIG.deviceId,
-      type: "test_alert",
-      message: "This is a test alert from ESP32",
-      severity: "low",
-      timestamp: new Date().toISOString(),
-    };
-
-    const alertTopic = `pets/${CONFIG.deviceId}/alert`;
-
-    console.log("📤 ESP32 sending test alert:");
-    console.log(`   Topic: ${alertTopic}`);
-    console.log("   Data:", JSON.stringify(alertData, null, 2));
-
-    client.publish(alertTopic, JSON.stringify(alertData), { qos: 1 }, (err) => {
-      if (err) {
-        console.log("❌ Publish failed:", err.message);
-      } else {
-        console.log("✅ Test alert sent");
-        testResults.messagesSent++;
-      }
-    });
-  }, 10000);
-
-  // Hiển thị kết quả sau 15 giây
-  setTimeout(() => {
-    showTestResults();
-  }, 15000);
+  );
 }
 
-// ================================
-// 📊 HIỂN THỊ KẾT QUẢ
-// ================================
-function showTestResults() {
-  console.log("\n" + "=".repeat(60));
-  console.log("📊 TEST RESULTS SUMMARY");
-  console.log("=".repeat(60));
+// Hàm gửi test message
+function sendTestMessage() {
+  const testData = {
+    test: true,
+    message: "Hello ESP32!",
+    timestamp: new Date().toISOString(),
+    server: "Test Node.js Server",
+  };
 
-  console.log(
-    `✅ MQTT Connection: ${testResults.mqttConnected ? "SUCCESS" : "FAILED"}`
+  console.log(`\n🧪 Sending test message to ${topics.test}:`);
+  console.log(JSON.stringify(testData, null, 2));
+
+  client.publish(topics.test, JSON.stringify(testData), { qos: 1 }, (err) => {
+    if (err) {
+      console.log("❌ Failed to publish test:", err.message);
+    } else {
+      console.log("✅ Test message sent");
+    }
+  });
+}
+
+// Hàm request location
+function requestLocation() {
+  const requestData = {
+    type: "location_request",
+    deviceId: config.deviceId,
+    timestamp: new Date().toISOString(),
+    message: "Please send your location",
+  };
+
+  console.log(`\n📍 Requesting location via ${topics.location}:`);
+  console.log(JSON.stringify(requestData, null, 2));
+
+  client.publish(
+    topics.location,
+    JSON.stringify(requestData),
+    { qos: 1 },
+    (err) => {
+      if (err) {
+        console.log("❌ Failed to request location:", err.message);
+      } else {
+        console.log("✅ Location request sent");
+      }
+    }
   );
-  console.log(
-    `✅ Topic Subscription: ${testResults.subscribed ? "SUCCESS" : "FAILED"}`
-  );
-  console.log(`📤 Messages Sent: ${testResults.messagesSent}/5`);
-  console.log(`📨 Messages Received: ${testResults.messagesReceived}`);
-  console.log(
-    `🎯 Config Received: ${testResults.configReceived ? "YES ✅" : "NO ❌"}`
-  );
+}
 
-  if (testResults.configReceived && testResults.configData) {
-    console.log("\n🎉 CONFIG RECEIVED SUCCESSFULLY!");
-    console.log("ESP32 sẽ nhận được các thông tin sau:");
-    console.log("=".repeat(40));
-    console.log(`📱 Pet Name: ${testResults.configData.petName}`);
-    console.log(`📞 Phone: ${testResults.configData.phoneNumber}`);
-    console.log(
-      `⏱️ Update Interval: ${testResults.configData.updateInterval}ms`
-    );
-    console.log(
-      `🛡️ Safe Zone: ${
-        testResults.configData.safeZone ? "Configured" : "Not configured"
-      }`
-    );
-    console.log(`🌐 Server: ${testResults.configData.serverUrl}`);
-    console.log("=".repeat(40));
-
-    console.log("\n✅ ESP32 sẽ làm gì với config này:");
-    console.log("   1. Lưu phone number để gửi SMS");
-    console.log("   2. Lưu safe zone để kiểm tra vùng an toàn");
-    console.log(
-      "   3. Gửi location mỗi",
-      testResults.configData.updateInterval,
-      "ms"
-    );
-    console.log("   4. Kết nối đến server:", testResults.configData.serverUrl);
-  } else {
-    console.log("\n❌ CONFIG NOT RECEIVED");
-    console.log("Nguyên nhân có thể:");
-    console.log("   1. Device chưa được đăng ký trên server");
-    console.log("   2. Server không auto-send config");
-    console.log("   3. MQTT topic không đúng");
-    console.log("   4. Server offline hoặc có lỗi");
-
-    console.log("\n💡 Giải pháp:");
-    console.log("   1. Kiểm tra device đã đăng ký chưa");
-    console.log("   2. Trigger config manual từ web:");
-    console.log(
-      `      https://pettracking2.onrender.com/debug/send-config/${CONFIG.deviceId}`
-    );
-    console.log("   3. Kiểm tra server logs");
-  }
-
-  console.log("\n" + "=".repeat(60));
-  console.log("🔌 Disconnecting...");
+// Chạy test trong 30 giây
+setTimeout(() => {
+  console.log("\n⏰ Test completed after 30 seconds");
+  console.log("👋 Disconnecting...");
   client.end();
   process.exit(0);
-}
+}, 30000);
 
-// ================================
-// ⏰ AUTO TIMEOUT (20 giây)
-// ================================
-setTimeout(() => {
-  console.log("\n⏰ Timeout reached, showing results...");
-  showTestResults();
-}, 20000);
+// Xử lý Ctrl+C
+process.on("SIGINT", () => {
+  console.log("\n👋 Shutting down...");
+  client.end();
+  process.exit(0);
+});

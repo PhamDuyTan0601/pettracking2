@@ -148,7 +148,61 @@ class MQTTService {
     }
   }
 
-  // 🔥 FIXED: HÀM XỬ LÝ LOCATION - LUÔN GỬI CONFIG
+  // 🆕 THÊM HÀM MỚI: Tạo safe zone từ vị trí đầu tiên
+  async createSafeZoneFromFirstLocation(deviceId, petId, latitude, longitude) {
+    try {
+      console.log(
+        `🏡 Tạo safe zone từ vị trí đầu tiên cho device: ${deviceId}`
+      );
+
+      const Pet = require("./models/pet");
+
+      // Kiểm tra xem pet đã có safe zone chưa
+      const pet = await Pet.findById(petId);
+      if (!pet) {
+        console.log(`❌ Pet not found: ${petId}`);
+        return null;
+      }
+
+      // Nếu pet đã có safe zone, không tạo mới
+      if (pet.safeZones && pet.safeZones.length > 0) {
+        console.log(`ℹ️ Pet ${pet.name} đã có safe zone, không tạo mới`);
+        return null;
+      }
+
+      // Tạo safe zone mới từ vị trí đầu tiên
+      const safeZoneData = {
+        name: "Vị trí an toàn chính",
+        center: {
+          lat: latitude,
+          lng: longitude,
+        },
+        radius: 100, // Bán kính 100m mặc định
+        isActive: true,
+        isPrimary: true, // Đánh dấu là safe zone chính
+        autoCreated: true, // Đánh dấu là tự động tạo
+        createdAt: new Date(),
+      };
+
+      // Thêm safe zone mới
+      if (!pet.safeZones) pet.safeZones = [];
+      pet.safeZones.push(safeZoneData);
+      await pet.save();
+
+      console.log(`✅ Đã tạo safe zone từ vị trí đầu tiên:`);
+      console.log(`   Pet: ${pet.name}`);
+      console.log(`   Vị trí: ${latitude}, ${longitude}`);
+      console.log(`   Bán kính: 100m`);
+      console.log(`   Tự động tạo: CÓ`);
+
+      return safeZoneData;
+    } catch (error) {
+      console.error("❌ Lỗi tạo safe zone từ vị trí đầu tiên:", error);
+      return null;
+    }
+  }
+
+  // 🔥 FIXED: HÀM XỬ LÝ LOCATION - LUÔN GỬI CONFIG + TẠO SAFE ZONE TỪ VỊ TRÍ ĐẦU TIÊN
   async handleLocationData(deviceId, data) {
     try {
       console.log(`📍 Processing location for device: ${deviceId}`);
@@ -171,6 +225,29 @@ class MQTTService {
       });
 
       await petData.save();
+
+      // 🆕 KIỂM TRA XEM ĐÂY CÓ PHẢI LÀ VỊ TRÍ ĐẦU TIÊN KHÔNG
+      // Đếm số lượng location của pet này
+      const locationCount = await PetData.countDocuments({
+        petId: device.petId._id,
+      });
+
+      console.log(
+        `📊 Location count for pet ${device.petId.name}: ${locationCount}`
+      );
+
+      // Nếu đây là location ĐẦU TIÊN (count = 1)
+      if (locationCount === 1) {
+        console.log(`🎯 ĐÂY LÀ VỊ TRÍ ĐẦU TIÊN CỦA PET!`);
+
+        // Tạo safe zone từ vị trí đầu tiên
+        await this.createSafeZoneFromFirstLocation(
+          deviceId,
+          device.petId._id,
+          data.latitude,
+          data.longitude
+        );
+      }
 
       // Update device
       device.lastSeen = new Date();
