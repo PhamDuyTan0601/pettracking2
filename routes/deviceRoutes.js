@@ -176,25 +176,20 @@ router.get("/test/:deviceId", async (req, res) => {
 });
 
 // ==============================
-// 🆕 ENDPOINT: ESP32 lấy thông tin cấu hình (UPDATED FOR FRESH DATA)
+// 🆕 ENDPOINT: ESP32 lấy thông tin cấu hình
 // ==============================
 router.get("/config/:deviceId", async (req, res) => {
   try {
     let { deviceId } = req.params;
 
-    console.log("🔧 ESP32 requesting FRESH config for device:", deviceId);
+    console.log("🔧 ESP32 requesting config for device:", deviceId);
 
-    // Tìm device trong DB - LUÔN LẤY DATA TƯƠI
+    // Tìm device trong DB
     const device = await Device.findOne({
       deviceId: deviceId,
       isActive: true,
     })
-      .populate({
-        path: "petId",
-        select: "name species breed",
-        // 🔥 LUÔN LẤY DATA TƯƠI TỪ PRIMARY
-        options: { readPreference: "primary" },
-      })
+      .populate("petId", "name species breed safeZones")
       .populate("owner", "name phone");
 
     if (!device) {
@@ -207,8 +202,8 @@ router.get("/config/:deviceId", async (req, res) => {
       });
     }
 
-    // 🔥 Build response với data tươi mới từ DB
-    return await buildFreshConfigResponse(res, device);
+    // Build response
+    return buildConfigResponse(res, device);
   } catch (error) {
     console.error("❌ Get config error:", error);
     res.status(500).json({
@@ -220,9 +215,9 @@ router.get("/config/:deviceId", async (req, res) => {
 });
 
 // ==============================
-// 🆕 HELPER: Build config response với data FRESH từ DB
+// 🆕 HELPER: Build config response
 // ==============================
-async function buildFreshConfigResponse(res, device) {
+function buildConfigResponse(res, device) {
   try {
     // Validate required data
     if (!device.petId) {
@@ -233,34 +228,12 @@ async function buildFreshConfigResponse(res, device) {
       throw new Error("Owner phone number is required");
     }
 
-    // 🔥 QUAN TRỌNG: Lấy thông tin safe zone TRỰC TIẾP từ DB
-    // Để đảm bảo luôn có radius mới nhất
-    const freshPet = await Pet.findById(device.petId._id)
-      .select("safeZones name species breed")
-      .lean(); // Sử dụng lean() để có plain object
-
-    if (!freshPet) {
-      throw new Error("Cannot fetch fresh pet data from database");
-    }
-
+    // Lấy thông tin vùng an toàn
     let safeZoneInfo = null;
-    let safeZoneDetails = "";
-
-    if (freshPet.safeZones && freshPet.safeZones.length > 0) {
-      console.log(
-        `📊 Found ${freshPet.safeZones.length} safe zones for pet ${freshPet.name}`
-      );
-
-      // Tìm safe zone theo thứ tự ưu tiên:
-      // 1. isActive + isPrimary
-      // 2. isActive
-      // 3. isPrimary
-      // 4. cái đầu tiên
+    if (device.petId.safeZones && device.petId.safeZones.length > 0) {
       const activeZone =
-        freshPet.safeZones.find((zone) => zone.isActive && zone.isPrimary) ||
-        freshPet.safeZones.find((zone) => zone.isActive) ||
-        freshPet.safeZones.find((zone) => zone.isPrimary) ||
-        freshPet.safeZones[0];
+        device.petId.safeZones.find((zone) => zone.isActive) ||
+        device.petId.safeZones[0];
 
       if (
         activeZone &&
@@ -276,40 +249,22 @@ async function buildFreshConfigResponse(res, device) {
           radius: activeZone.radius || 100,
           name: activeZone.name || "Safe Zone",
           isActive: activeZone.isActive !== false,
-          isPrimary: activeZone.isPrimary || false,
-          autoCreated: activeZone.autoCreated || false,
-          _id: activeZone._id || null,
         };
-
-        safeZoneDetails = `zone_id=${activeZone._id || "unknown"}, radius=${
-          activeZone.radius
-        }m`;
-
-        console.log("📍 Fresh safe zone from DB:", {
-          name: safeZoneInfo.name,
-          radius: safeZoneInfo.radius,
-          isActive: safeZoneInfo.isActive,
-          isPrimary: safeZoneInfo.isPrimary,
-          autoCreated: safeZoneInfo.autoCreated,
-        });
       }
     }
 
-    console.log("✅ Sending FRESH config to ESP32:", {
+    console.log("✅ Sending config to ESP32:", {
       deviceId: device.deviceId,
       petName: device.petId.name,
       ownerPhone: device.owner.phone,
       hasSafeZone: !!safeZoneInfo,
       safeZoneRadius: safeZoneInfo?.radius || "none",
-      safeZoneDetails: safeZoneDetails,
-      source: "FRESH_DB_QUERY",
-      timestamp: new Date().toISOString(),
     });
 
     // Build response
     const response = {
       success: true,
-      _source: "http_api_fresh",
+      _source: "http_api",
       deviceId: device.deviceId,
       petId: device.petId._id.toString(),
       petName: device.petId.name,
@@ -318,8 +273,7 @@ async function buildFreshConfigResponse(res, device) {
       serverUrl: process.env.SERVER_URL || "https://pettracking2.onrender.com",
       updateInterval: 30000,
       timestamp: new Date().toISOString(),
-      version: "1.0.1",
-      dataFreshness: new Date().toISOString(),
+      version: "1.0.0",
       mqttConfig: {
         broker: "u799c202.ala.dedicated.aws.emqxcloud.com",
         port: 1883,
@@ -347,20 +301,16 @@ async function buildFreshConfigResponse(res, device) {
         : null,
       configSent: device.configSent || false,
       petSpecies: device.petId.species,
-      configVia: "HTTP API - FRESH DB",
-      safeZoneCount: freshPet.safeZones?.length || 0,
-      databaseQueryTime: new Date().toISOString(),
-      safeZoneDetails: safeZoneDetails,
+      configVia: "HTTP API",
     };
 
     res.json(response);
   } catch (error) {
-    console.error("❌ Error building FRESH config response:", error);
+    console.error("❌ Error building config response:", error);
     res.status(400).json({
       success: false,
       message: error.message || "Failed to build configuration",
       deviceId: device.deviceId,
-      error: process.env.NODE_ENV === "development" ? error.stack : undefined,
     });
   }
 }
@@ -372,14 +322,14 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
   try {
     let { deviceId } = req.params;
 
-    console.log("📤 Publishing FRESH config to device via MQTT:", deviceId);
+    console.log("📤 Publishing config to device via MQTT:", deviceId);
 
     const device = await Device.findOne({
       deviceId,
       owner: req.user._id,
       isActive: true,
     })
-      .populate("petId", "name species breed")
+      .populate("petId", "name species breed safeZones")
       .populate("owner", "name phone");
 
     if (!device) {
@@ -389,7 +339,7 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
       });
     }
 
-    // Gọi MQTT service để publish config với data tươi
+    // Gọi MQTT service để publish config
     await mqttService.manualPublishConfig(deviceId);
 
     // Update device
@@ -404,7 +354,6 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
       message: "Config published successfully via MQTT",
       deviceId: deviceId,
       timestamp: new Date().toISOString(),
-      dataFreshness: "fresh_from_db",
     });
   } catch (error) {
     console.error("❌ Publish config error:", error);
@@ -422,7 +371,7 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
   try {
     const { deviceId } = req.params;
 
-    console.log("🚀 Manual trigger FRESH config for device:", deviceId);
+    console.log("🚀 Manual trigger config for device:", deviceId);
 
     // Kiểm tra device
     const device = await Device.findOne({
@@ -437,7 +386,7 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
       });
     }
 
-    // Gọi MQTT service để gửi config với data tươi
+    // Gọi MQTT service để gửi config
     await mqttService.manualPublishConfig(deviceId);
 
     // Cập nhật trạng thái
@@ -449,10 +398,9 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
 
     res.json({
       success: true,
-      message: "FRESH config sent to device via MQTT",
+      message: "Config sent to device via MQTT",
       deviceId: deviceId,
       timestamp: new Date().toISOString(),
-      dataSource: "fresh_database_query",
     });
   } catch (error) {
     console.error("❌ Trigger config error:", error);
