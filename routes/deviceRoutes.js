@@ -532,5 +532,124 @@ router.get("/list/devices", auth, async (req, res) => {
     });
   }
 });
+// Thêm vào deviceRoutes.js (sau các route khác)
 
+// 🆕 API: Xem thông tin vị trí đầu tiên
+router.get("/first-location/:deviceId", auth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    const device = await Device.findOne({
+      deviceId,
+      owner: req.user._id,
+    }).populate("petId", "name");
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      deviceId: device.deviceId,
+      petName: device.petId?.name,
+      firstLocationCaptured: device.firstLocationCaptured,
+      firstLocation: device.firstLocationCaptured
+        ? {
+            lat: device.firstLocationLat,
+            lng: device.firstLocationLng,
+            timestamp: device.firstLocationTimestamp,
+          }
+        : null,
+      hasAutoCreatedSafeZone: false, // Có thể thêm logic kiểm tra
+    });
+  } catch (error) {
+    console.error("Error getting first location:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
+// 🆕 API: Reset và tạo lại safe zone từ vị trí đầu tiên
+router.post("/reset-safe-zone/:deviceId", auth, async (req, res) => {
+  try {
+    const { deviceId } = req.params;
+
+    const device = await Device.findOne({
+      deviceId,
+      owner: req.user._id,
+    }).populate("petId");
+
+    if (!device) {
+      return res.status(404).json({
+        success: false,
+        message: "Device not found",
+      });
+    }
+
+    if (!device.firstLocationCaptured) {
+      return res.status(400).json({
+        success: false,
+        message: "Device chưa có vị trí đầu tiên",
+      });
+    }
+
+    const Pet = require("../models/pet");
+    const pet = await Pet.findById(device.petId._id);
+
+    if (!pet) {
+      return res.status(404).json({
+        success: false,
+        message: "Pet not found",
+      });
+    }
+
+    // Xóa tất cả safe zone autoCreated cũ
+    if (pet.safeZones) {
+      pet.safeZones = pet.safeZones.filter((zone) => !zone.autoCreated);
+    }
+
+    // Tạo safe zone mới từ vị trí đầu tiên
+    const safeZoneData = {
+      name: "Vị trí an toàn chính",
+      center: {
+        lat: device.firstLocationLat,
+        lng: device.firstLocationLng,
+      },
+      radius: 100,
+      isActive: true,
+      isPrimary: true,
+      autoCreated: true,
+      notes: `Tạo lại từ vị trí đầu tiên (${device.firstLocationTimestamp.toLocaleString(
+        "vi-VN"
+      )})`,
+      createdAt: new Date(),
+    };
+
+    if (!pet.safeZones) pet.safeZones = [];
+    pet.safeZones.push(safeZoneData);
+    await pet.save();
+
+    res.json({
+      success: true,
+      message: "Đã tạo lại safe zone từ vị trí đầu tiên",
+      safeZone: safeZoneData,
+      firstLocation: {
+        lat: device.firstLocationLat,
+        lng: device.firstLocationLng,
+        timestamp: device.firstLocationTimestamp,
+      },
+    });
+  } catch (error) {
+    console.error("Error resetting safe zone:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
 module.exports = router;

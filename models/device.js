@@ -33,6 +33,20 @@ const deviceSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    // 🔥 THÊM FIELD MỚI: Để lưu vị trí đầu tiên
+    firstLocationCaptured: {
+      type: Boolean,
+      default: false,
+    },
+    firstLocationLat: {
+      type: Number,
+    },
+    firstLocationLng: {
+      type: Number,
+    },
+    firstLocationTimestamp: {
+      type: Date,
+    },
     description: {
       type: String,
       maxlength: [200, "Description too long"],
