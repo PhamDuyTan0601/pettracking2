@@ -215,7 +215,7 @@ router.get("/config/:deviceId", async (req, res) => {
 });
 
 // ==============================
-// 🆕 HELPER: Build config response
+// 🆕 HELPER: Build config response - ĐÃ FIX
 // ==============================
 function buildConfigResponse(res, device) {
   try {
@@ -228,28 +228,42 @@ function buildConfigResponse(res, device) {
       throw new Error("Owner phone number is required");
     }
 
-    // Lấy thông tin vùng an toàn
-    let safeZoneInfo = null;
+    // 🚨 FIXED: LẤY TẤT CẢ SAFE ZONES ACTIVE
+    let safeZonesInfo = [];
     if (device.petId.safeZones && device.petId.safeZones.length > 0) {
-      const activeZone =
-        device.petId.safeZones.find((zone) => zone.isActive) ||
-        device.petId.safeZones[0];
+      // Lấy TẤT CẢ safe zones đang active
+      const activeZones = device.petId.safeZones.filter(
+        (zone) => zone.isActive
+      );
 
-      if (
-        activeZone &&
-        activeZone.center &&
-        activeZone.center.lat &&
-        activeZone.center.lng
-      ) {
-        safeZoneInfo = {
+      if (activeZones.length > 0) {
+        safeZonesInfo = activeZones.map((zone) => ({
           center: {
-            lat: activeZone.center.lat,
-            lng: activeZone.center.lng,
+            lat: zone.center.lat,
+            lng: zone.center.lng,
           },
-          radius: activeZone.radius || 100,
-          name: activeZone.name || "Safe Zone",
-          isActive: activeZone.isActive !== false,
-        };
+          radius: zone.radius || 100,
+          name: zone.name || "Safe Zone",
+          isActive: true,
+          _id: zone._id.toString(),
+        }));
+      } else {
+        // Nếu không có zone nào active, lấy zone đầu tiên
+        const firstZone = device.petId.safeZones[0];
+        if (firstZone && firstZone.center) {
+          safeZonesInfo = [
+            {
+              center: {
+                lat: firstZone.center.lat,
+                lng: firstZone.center.lng,
+              },
+              radius: firstZone.radius || 100,
+              name: firstZone.name || "Safe Zone",
+              isActive: false,
+              _id: firstZone._id.toString(),
+            },
+          ];
+        }
       }
     }
 
@@ -257,8 +271,7 @@ function buildConfigResponse(res, device) {
       deviceId: device.deviceId,
       petName: device.petId.name,
       ownerPhone: device.owner.phone,
-      hasSafeZone: !!safeZoneInfo,
-      safeZoneRadius: safeZoneInfo?.radius || "none",
+      safeZonesCount: safeZonesInfo.length,
     });
 
     // Build response
@@ -273,7 +286,7 @@ function buildConfigResponse(res, device) {
       serverUrl: process.env.SERVER_URL || "https://pettracking2.onrender.com",
       updateInterval: 30000,
       timestamp: new Date().toISOString(),
-      version: "1.0.0",
+      version: "2.0.0", // 🚨 UPDATE VERSION
       mqttConfig: {
         broker: "u799c202.ala.dedicated.aws.emqxcloud.com",
         port: 1883,
@@ -288,9 +301,9 @@ function buildConfigResponse(res, device) {
       },
     };
 
-    // Thêm safe zone nếu có
-    if (safeZoneInfo) {
-      response.safeZone = safeZoneInfo;
+    // 🚨 THAY ĐỔI: từ safeZone -> safeZones (array)
+    if (safeZonesInfo.length > 0) {
+      response.safeZones = safeZonesInfo;
     }
 
     // Thêm thông tin debug
@@ -302,6 +315,7 @@ function buildConfigResponse(res, device) {
       configSent: device.configSent || false,
       petSpecies: device.petId.species,
       configVia: "HTTP API",
+      safeZonesReceived: safeZonesInfo.length,
     };
 
     res.json(response);

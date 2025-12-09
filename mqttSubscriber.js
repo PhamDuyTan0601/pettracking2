@@ -22,7 +22,7 @@ class MQTTService {
         location: "pets/+/location",
         status: "pets/+/status",
         alert: "pets/+/alert",
-        config: "pets/+/config", // Thêm để listen config request
+        config: "pets/+/config",
       },
     };
 
@@ -178,7 +178,7 @@ class MQTTService {
 
       console.log(`📍 Location saved for ${deviceId} → ${device.petId.name}`);
 
-      // 🔥 🔥 🔥 QUAN TRỌNG: LUÔN GỬI CONFIG KHI NHẬN LOCATION
+      // 🔥 QUAN TRỌNG: LUÔN GỬI CONFIG KHI NHẬN LOCATION
       console.log(
         `⚙️ AUTO-SENDING CONFIG to ${deviceId} (triggered by location)`
       );
@@ -248,7 +248,7 @@ class MQTTService {
     }
   }
 
-  // 🔥 NEW: HÀM XỬ LÝ CONFIG REQUEST
+  // 🔥 FIXED: HÀM XỬ LÝ CONFIG REQUEST
   async handleConfigRequest(deviceId, data) {
     try {
       console.log(`⚙️ Config request from ${deviceId}:`, data);
@@ -295,7 +295,7 @@ class MQTTService {
     }
   }
 
-  // 🔥 FIXED: HÀM GỬI CONFIG ĐẾN DEVICE
+  // 🔥 FIXED COMPLETELY: HÀM GỬI CONFIG ĐẾN DEVICE - SUPPORT MULTIPLE SAFE ZONES
   async sendConfigToDevice(deviceId) {
     try {
       console.log(`⚙️ Preparing config for device: ${deviceId}`);
@@ -323,25 +323,48 @@ class MQTTService {
         return;
       }
 
-      // Lấy thông tin vùng an toàn
-      let safeZoneInfo = null;
+      // 🚨 FIXED: LẤY TẤT CẢ SAFE ZONES ACTIVE
+      let safeZonesInfo = [];
       if (device.petId.safeZones && device.petId.safeZones.length > 0) {
-        const activeZone =
-          device.petId.safeZones.find((zone) => zone.isActive) ||
-          device.petId.safeZones[0];
+        // Lấy TẤT CẢ safe zones đang active
+        const activeZones = device.petId.safeZones.filter(
+          (zone) => zone.isActive
+        );
 
-        if (activeZone && activeZone.center) {
-          safeZoneInfo = {
+        if (activeZones.length > 0) {
+          safeZonesInfo = activeZones.map((zone) => ({
             center: {
-              lat: activeZone.center.lat,
-              lng: activeZone.center.lng,
+              lat: zone.center.lat,
+              lng: zone.center.lng,
             },
-            radius: activeZone.radius || 100,
-            name: activeZone.name || "Safe Zone",
-            isActive: activeZone.isActive !== false,
-          };
+            radius: zone.radius || 100,
+            name: zone.name || "Safe Zone",
+            isActive: true,
+            _id: zone._id.toString(), // Thêm ID để ESP32 biết zone nào
+          }));
+        } else {
+          // Nếu không có zone nào active, lấy zone đầu tiên
+          const firstZone = device.petId.safeZones[0];
+          if (firstZone && firstZone.center) {
+            safeZonesInfo = [
+              {
+                center: {
+                  lat: firstZone.center.lat,
+                  lng: firstZone.center.lng,
+                },
+                radius: firstZone.radius || 100,
+                name: firstZone.name || "Safe Zone",
+                isActive: false,
+                _id: firstZone._id.toString(),
+              },
+            ];
+          }
         }
       }
+
+      console.log(
+        `📍 Found ${safeZonesInfo.length} safe zones for ${deviceId}`
+      );
 
       // Tạo config message
       const config = {
@@ -360,20 +383,21 @@ class MQTTService {
         configSentAt: device.lastConfigSent
           ? device.lastConfigSent.toISOString()
           : new Date().toISOString(),
+        version: "2.0.0", // 🚨 UPDATE VERSION
       };
 
-      // Thêm safe zone nếu có
-      if (safeZoneInfo) {
-        config.safeZone = safeZoneInfo;
-        console.log(
-          `📍 Safe zone included: ${safeZoneInfo.name} (${safeZoneInfo.radius}m)`
-        );
+      // 🚨 THAY ĐỔI: từ safeZone -> safeZones (array)
+      if (safeZonesInfo.length > 0) {
+        config.safeZones = safeZonesInfo;
+        safeZonesInfo.forEach((zone, index) => {
+          console.log(`   Zone ${index + 1}: ${zone.name} (${zone.radius}m)`);
+        });
       }
 
       console.log(`✅ Config prepared for ${deviceId}:`);
       console.log(`   Pet: ${config.petName}`);
       console.log(`   Phone: ${config.phoneNumber}`);
-      console.log(`   Has Safe Zone: ${!!config.safeZone}`);
+      console.log(`   Safe Zones: ${safeZonesInfo.length}`);
 
       // Publish config với retain flag
       this.publishConfig(deviceId, config);
@@ -395,6 +419,7 @@ class MQTTService {
     console.log(`   Topic: ${topic}`);
     console.log(`   Device: ${config.deviceId}`);
     console.log(`   Pet: ${config.petName}`);
+    console.log(`   Safe Zones: ${config.safeZones?.length || 0}`);
 
     // Publish với retain: true để ESP32 nhận được ngay khi connect
     this.client.publish(
