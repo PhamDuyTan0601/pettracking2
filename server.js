@@ -16,7 +16,7 @@ app.use(
     origin: [
       "http://localhost:3000",
       "https://pet-mu-seven.vercel.app",
-      "https://pettracking88.vercel.app"
+      "https://pettracking88.vercel.app",
       "*",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
