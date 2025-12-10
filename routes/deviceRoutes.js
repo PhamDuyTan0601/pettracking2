@@ -271,28 +271,14 @@ function buildConfigResponse(res, device) {
     // Build response
     const response = {
       success: true,
-      _source: "http_api",
+
       deviceId: device.deviceId,
       petId: device.petId._id.toString(),
       petName: device.petId.name,
       phoneNumber: device.owner.phone,
       ownerName: device.owner.name,
-      serverUrl: process.env.SERVER_URL || "https://pettracking2.onrender.com",
-      updateInterval: 30000,
+
       timestamp: new Date().toISOString(),
-      version: "2.1.0", // 🚨 UPDATE VERSION
-      mqttConfig: {
-        broker: "u799c202.ala.dedicated.aws.emqxcloud.com",
-        port: 1883,
-        username: "duytan",
-        password: "123456",
-        topics: {
-          location: `pets/${device.deviceId}/location`,
-          status: `pets/${device.deviceId}/status`,
-          alert: `pets/${device.deviceId}/alert`,
-          config: `pets/${device.deviceId}/config`,
-        },
-      },
     };
 
     if (safeZonesInfo.length > 0) {
