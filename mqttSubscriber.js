@@ -354,15 +354,10 @@ class MQTTService {
         petName: device.petId.name,
         phoneNumber: device.owner.phone,
         ownerName: device.owner.name,
-        serverUrl:
-          process.env.SERVER_URL || "https://pettracking2.onrender.com",
-        updateInterval: 30000,
-        timestamp: new Date().toISOString(),
-        message: "Configuration from Pet Tracker Server",
+
         configSentAt: device.lastConfigSent
           ? device.lastConfigSent.toISOString()
           : new Date().toISOString(),
-        version: "2.1.0",
       };
 
       if (safeZonesInfo.length > 0) {

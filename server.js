@@ -512,39 +512,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   📡 Server URL: ${
     process.env.SERVER_URL || "https://pettracking2.onrender.com"
   }
-  ==========================================
   
-  🔧 MAIN ENDPOINTS:
-  💓 Health Check: GET /health
-  📱 Device Config: GET /api/devices/config/{deviceId}
-  🔍 Device Test: GET /api/devices/test/{deviceId}
-  🚀 Trigger Config: POST /api/devices/trigger-config/{deviceId}
-  🧹 Cleanup Safe Zones: POST /api/devices/cleanup-safe-zones/{petId}
-  📊 Safe Zones Info: GET /api/devices/safe-zones-info/{petId}
-  
-  🔧 DEBUG ENDPOINTS:
-  📊 MQTT Status: GET /debug/mqtt-status
-  📱 Device Info: GET /debug/device-config/{deviceId}
-  🚀 Send Config: GET /debug/send-config/{deviceId}
-  📋 All Devices: GET /debug/devices
-  🔍 Device Detail: GET /debug/device/{deviceId}
-  🧪 Test MQTT: GET /debug/test-mqtt/{deviceId}
-  🧹 Cleanup Pet: GET /debug/cleanup-pet/{petId}
-  📊 Safe Zones Stats: GET /debug/safe-zones-stats
-  🚨 Emergency Cleanup: GET /debug/emergency-cleanup-all
-  
-  📡 MQTT BROKER:
-  🔗 Broker: u799c202.ala.dedicated.aws.emqxcloud.com:1883
-  👤 Username: duytan
-  📌 Topics:
-      • pets/{deviceId}/location (subscribe)
-      • pets/{deviceId}/config (publish with retain)
-      • pets/{deviceId}/status (subscribe)
-      • pets/{deviceId}/alert (subscribe)
-  
-  ==========================================
-  ✅ Server ready with SAFE ZONES VALIDATION!
-  ==========================================
   `);
 });
 
