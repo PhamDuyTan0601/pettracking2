@@ -1,6 +1,6 @@
 const express = require("express");
 const Device = require("../models/device");
-const Pet = require("../models/pet");
+const Pet = require("../models/pet"); // 🚨 ĐÃ THÊM
 const User = require("../models/user");
 const auth = require("../middleware/authMiddleware");
 const mqttService = require("../mqttSubscriber");
@@ -208,7 +208,7 @@ router.get("/config/:deviceId", async (req, res) => {
 });
 
 // ==============================
-// 🆕 HELPER: Build config response - TỐI GIẢN
+// 🆕 HELPER: Build config response - ĐÃ FIX (GIỚI HẠN 5 ZONES VÀ MINIMAL CONFIG)
 // ==============================
 function buildConfigResponse(res, device) {
   try {
@@ -220,9 +220,9 @@ function buildConfigResponse(res, device) {
       throw new Error("Owner phone number is required");
     }
 
-    // TỐI GIẢN: GIỚI HẠN 5 SAFE ZONES MỚI NHẤT
+    // 🚨 FIXED: GIỚI HẠN CHỈ 5 SAFE ZONES MỚI NHẤT
     let safeZonesInfo = [];
-    const MAX_ZONES_FOR_ESP32 = 5;
+    const MAX_ZONES_FOR_ESP32 = 5; // 🚨 GIỚI HẠN QUAN TRỌNG
 
     if (device.petId.safeZones && device.petId.safeZones.length > 0) {
       // Lấy TẤT CẢ safe zones đang active
@@ -230,49 +230,55 @@ function buildConfigResponse(res, device) {
         (zone) => zone.isActive
       );
 
-      // SORT BY CREATION DATE (NEWEST FIRST)
+      // 🚨 SORT BY CREATION DATE (NEWEST FIRST)
       const sortedZones = activeZones.sort((a, b) => {
         const dateA = a.createdAt || a._id.getTimestamp();
         const dateB = b.createdAt || b._id.getTimestamp();
         return new Date(dateB) - new Date(dateA);
       });
 
-      // GIỚI HẠN CHỈ 5 ZONES MỚI NHẤT
+      // 🚨 GIỚI HẠN CHỈ 5 ZONES MỚI NHẤT
       const limitedZones = sortedZones.slice(0, MAX_ZONES_FOR_ESP32);
 
       if (limitedZones.length > 0) {
         safeZonesInfo = limitedZones.map((zone) => ({
-          center: {
-            lat: zone.center.lat,
-            lng: zone.center.lng,
-          },
+          lat: zone.center.lat,
+          lng: zone.center.lng,
           radius: zone.radius || 100,
-          name: zone.name || "Safe Zone",
-          isActive: true,
-          _id: zone._id.toString(),
-          priority: 1,
         }));
       }
     }
 
-    console.log("✅ Sending MINIMAL config to ESP32:", {
+    const totalZonesInDB = device.petId.safeZones?.length || 0;
+    const activeZonesCount =
+      device.petId.safeZones?.filter((z) => z.isActive).length || 0;
+
+    console.log("✅ Sending config to ESP32:", {
       deviceId: device.deviceId,
       petName: device.petId.name,
+      ownerPhone: device.owner.phone,
       safeZonesSent: safeZonesInfo.length,
+      activeZonesInDB: activeZonesCount,
+      totalZonesInDB: totalZonesInDB,
     });
 
-    // Build response TỐI GIẢN
+    // 🚨 MINIMAL CONFIG - CHỈ CÁC TRƯỜNG ESP32 CẦN
     const response = {
       success: true,
       petId: device.petId._id.toString(),
       petName: device.petId.name,
       phoneNumber: device.owner.phone,
+      maxZones: MAX_ZONES_FOR_ESP32,
       timestamp: new Date().toISOString(),
     };
 
-    // Chỉ thêm safeZones nếu có
     if (safeZonesInfo.length > 0) {
       response.safeZones = safeZonesInfo;
+    }
+
+    // Thêm warning nếu có quá nhiều zones
+    if (totalZonesInDB > MAX_ZONES_FOR_ESP32) {
+      response.warning = `Only ${MAX_ZONES_FOR_ESP32} most recent zones shown (${totalZonesInDB} total)`;
     }
 
     res.json(response);
