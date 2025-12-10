@@ -1,6 +1,6 @@
 const express = require("express");
 const Device = require("../models/device");
-const Pet = require("../models/pet"); // 🚨 ĐÃ THÊM
+const Pet = require("../models/pet");
 const User = require("../models/user");
 const auth = require("../middleware/authMiddleware");
 const mqttService = require("../mqttSubscriber");
@@ -171,44 +171,7 @@ router.get("/test/:deviceId", async (req, res) => {
 });
 
 // ==============================
-// 🆕 ENDPOINT: ESP32 lấy thông tin cấu hình
-// ==============================
-router.get("/config/:deviceId", async (req, res) => {
-  try {
-    let { deviceId } = req.params;
-
-    console.log("🔧 ESP32 requesting config for device:", deviceId);
-
-    const device = await Device.findOne({
-      deviceId: deviceId,
-      isActive: true,
-    })
-      .populate("petId", "name species breed safeZones")
-      .populate("owner", "name phone");
-
-    if (!device) {
-      console.log("❌ Device not found or not active:", deviceId);
-      return res.status(404).json({
-        success: false,
-        message: "Device not registered or not active",
-        deviceId: deviceId,
-        hint: "Please register device first via /api/devices/register",
-      });
-    }
-
-    return buildConfigResponse(res, device);
-  } catch (error) {
-    console.error("❌ Get config error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error while fetching device config",
-      error: error.message,
-    });
-  }
-});
-
-// ==============================
-// 🆕 HELPER: Build config response - ĐÃ FIX (GIỚI HẠN 5 ZONES)
+// 🆕 HELPER: Build MINIMAL config response (< 200 bytes)
 // ==============================
 function buildConfigResponse(res, device) {
   try {
@@ -220,110 +183,95 @@ function buildConfigResponse(res, device) {
       throw new Error("Owner phone number is required");
     }
 
-    // 🚨 FIXED: GIỚI HẠN CHỈ 5 SAFE ZONES MỚI NHẤT
-    let safeZonesInfo = [];
-    const MAX_ZONES_FOR_ESP32 = 5; // 🚨 GIỚI HẠN QUAN TRỌNG
+    // 🚨 MINIMAL CONFIG - DƯỚI 200 BYTES
+    const response = {
+      s: 1, // success
+      d: device.deviceId, // deviceId
+      p: device.petId._id.toString(), // petId
+      n: device.petId.name, // petName
+      ph: device.owner.phone, // phoneNumber
+      o: device.owner.name || "Owner", // ownerName
+    };
 
+    // 🚨 CHỈ THÊM SAFE ZONE NẾU CÓ VÀ CỰC NGẮN
     if (device.petId.safeZones && device.petId.safeZones.length > 0) {
-      // Lấy TẤT CẢ safe zones đang active
-      const activeZones = device.petId.safeZones.filter(
-        (zone) => zone.isActive
-      );
+      const activeZones = device.petId.safeZones.filter((z) => z.isActive);
 
-      // 🚨 SORT BY CREATION DATE (NEWEST FIRST)
-      const sortedZones = activeZones.sort((a, b) => {
-        const dateA = a.createdAt || a._id.getTimestamp();
-        const dateB = b.createdAt || b._id.getTimestamp();
-        return new Date(dateB) - new Date(dateA);
-      });
+      if (activeZones.length > 0) {
+        const zone = activeZones.find((z) => z.isPrimary) || activeZones[0];
 
-      // 🚨 GIỚI HẠN CHỈ 5 ZONES MỚI NHẤT
-      const limitedZones = sortedZones.slice(0, MAX_ZONES_FOR_ESP32);
-
-      if (limitedZones.length > 0) {
-        safeZonesInfo = limitedZones.map((zone) => ({
-          center: {
-            lat: zone.center.lat,
-            lng: zone.center.lng,
+        response.z = {
+          // zone (not safeZone để ngắn hơn)
+          c: {
+            // center
+            a: zone.center.lat, // lat
+            b: zone.center.lng, // lng
           },
-          radius: zone.radius || 100,
-          name: zone.name || "Safe Zone",
-          isActive: true,
-          _id: zone._id.toString(),
-          priority: 1, // Thêm priority cho ESP32
-        }));
+          r: zone.radius || 100, // radius
+          n: (zone.name || "Home").substring(0, 8), // name (max 8 chars)
+          a: 1, // active
+        };
       }
     }
 
-    const totalZonesInDB = device.petId.safeZones?.length || 0;
-    const activeZonesCount =
-      device.petId.safeZones?.filter((z) => z.isActive).length || 0;
+    // Debug size
+    const jsonStr = JSON.stringify(response);
+    console.log(`✅ Sending MINIMAL config: ${jsonStr.length} bytes`);
 
-    console.log("✅ Sending config to ESP32:", {
-      deviceId: device.deviceId,
-      petName: device.petId.name,
-      ownerPhone: device.owner.phone,
-      safeZonesSent: safeZonesInfo.length,
-      activeZonesInDB: activeZonesCount,
-      totalZonesInDB: totalZonesInDB,
-    });
+    if (jsonStr.length > 200) {
+      console.warn(`⚠️ Config still large: ${jsonStr.length} bytes`);
 
-    // Build response
-    const response = {
-      success: true,
-
-      deviceId: device.deviceId,
-      petId: device.petId._id.toString(),
-      petName: device.petId.name,
-      phoneNumber: device.owner.phone,
-      ownerName: device.owner.name,
-
-      timestamp: new Date().toISOString(),
-    };
-
-    if (safeZonesInfo.length > 0) {
-      response.safeZones = safeZonesInfo;
-    }
-
-    // Thêm warning nếu có quá nhiều zones
-    if (totalZonesInDB > MAX_ZONES_FOR_ESP32) {
-      response.warning = `Only showing ${MAX_ZONES_FOR_ESP32} most recent active zones out of ${totalZonesInDB} total zones`;
-      response.debug = {
-        deviceRegistered: new Date(device.createdAt).toISOString(),
-        lastSeen: device.lastSeen
-          ? new Date(device.lastSeen).toISOString()
-          : null,
-        configSent: device.configSent || false,
-        petSpecies: device.petId.species,
-        configVia: "HTTP API",
-        safeZonesSent: safeZonesInfo.length,
-        safeZonesActiveInDB: activeZonesCount,
-        safeZonesTotalInDB: totalZonesInDB,
-        zonesLimit: MAX_ZONES_FOR_ESP32,
-      };
-    } else {
-      response.debug = {
-        deviceRegistered: new Date(device.createdAt).toISOString(),
-        lastSeen: device.lastSeen
-          ? new Date(device.lastSeen).toISOString()
-          : null,
-        configSent: device.configSent || false,
-        petSpecies: device.petId.species,
-        configVia: "HTTP API",
-        safeZonesReceived: safeZonesInfo.length,
-      };
+      // Remove zone if too large
+      if (response.z) {
+        delete response.z;
+        console.log("⚠️ Removed zone to reduce size");
+      }
     }
 
     res.json(response);
   } catch (error) {
-    console.error("❌ Error building config response:", error);
+    console.error("❌ Error building config:", error);
     res.status(400).json({
-      success: false,
-      message: error.message || "Failed to build configuration",
-      deviceId: device.deviceId,
+      s: 0, // success: false
+      m: error.message.substring(0, 30),
     });
   }
 }
+
+// ==============================
+// 🆕 ENDPOINT: ESP32 lấy thông tin cấu hình (MINIMAL)
+// ==============================
+router.get("/config/:deviceId", async (req, res) => {
+  try {
+    let { deviceId } = req.params;
+
+    console.log("🔧 ESP32 requesting MINIMAL config for device:", deviceId);
+
+    const device = await Device.findOne({
+      deviceId: deviceId,
+      isActive: true,
+    })
+      .populate("petId", "name safeZones")
+      .populate("owner", "name phone");
+
+    if (!device) {
+      console.log("❌ Device not found or not active:", deviceId);
+      return res.status(404).json({
+        s: 0, // success: false
+        m: "Device not found",
+        d: deviceId,
+      });
+    }
+
+    return buildConfigResponse(res, device);
+  } catch (error) {
+    console.error("❌ Get config error:", error);
+    res.status(500).json({
+      s: 0,
+      m: "Server error",
+    });
+  }
+});
 
 // ==============================
 // 🆕 PUBLISH CONFIG TO DEVICE VIA MQTT
@@ -332,7 +280,7 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
   try {
     let { deviceId } = req.params;
 
-    console.log("📤 Publishing config to device via MQTT:", deviceId);
+    console.log("📤 Publishing MINIMAL config to device via MQTT:", deviceId);
 
     const device = await Device.findOne({
       deviceId,
@@ -355,11 +303,11 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
     device.lastConfigSent = new Date();
     await device.save();
 
-    console.log("✅ Config published to:", deviceId);
+    console.log("✅ Minimal config published to:", deviceId);
 
     res.json({
       success: true,
-      message: "Config published successfully via MQTT",
+      message: "Minimal config published successfully via MQTT",
       deviceId: deviceId,
       timestamp: new Date().toISOString(),
     });
@@ -379,7 +327,7 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
   try {
     const { deviceId } = req.params;
 
-    console.log("🚀 Manual trigger config for device:", deviceId);
+    console.log("🚀 Manual trigger MINIMAL config for device:", deviceId);
 
     const device = await Device.findOne({
       deviceId,
@@ -388,8 +336,8 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
 
     if (!device) {
       return res.status(404).json({
-        success: false,
-        message: "Device not found or not active",
+        s: 0,
+        m: "Device not found",
       });
     }
 
@@ -399,19 +347,19 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
     device.lastConfigSent = new Date();
     await device.save();
 
-    console.log("✅ Config triggered for:", deviceId);
+    console.log("✅ Minimal config triggered for:", deviceId);
 
     res.json({
-      success: true,
-      message: "Config sent to device via MQTT",
-      deviceId: deviceId,
-      timestamp: new Date().toISOString(),
+      s: 1,
+      m: "Minimal config sent",
+      d: deviceId,
+      t: new Date().getTime(),
     });
   } catch (error) {
     console.error("❌ Trigger config error:", error);
     res.status(500).json({
-      success: false,
-      message: "Server error",
+      s: 0,
+      m: "Server error",
     });
   }
 });
@@ -422,7 +370,7 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
 router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
   try {
     const { petId } = req.params;
-    const { keepCount = 5 } = req.body;
+    const { keepCount = 1 } = req.body; // Mặc định chỉ giữ 1 zone
 
     console.log(
       `🧹 Cleaning up safe zones for pet ${petId}, keeping ${keepCount} most recent`
@@ -473,7 +421,7 @@ router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
         setTimeout(() => {
           mqttService.manualPublishConfig(device.deviceId);
           console.log(
-            `⚙️ Auto-sent config to ${device.deviceId} after cleanup`
+            `⚙️ Auto-sent MINIMAL config to ${device.deviceId} after cleanup`
           );
         }, 1000);
       });
@@ -489,12 +437,6 @@ router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
       deleted: zonesToDelete.length,
       totalBefore: totalZones,
       totalAfter: zonesToKeep.length,
-      zonesKept: zonesToKeep.map((z) => ({
-        id: z._id,
-        name: z.name,
-        radius: z.radius,
-        createdAt: z.createdAt || z._id.getTimestamp(),
-      })),
     });
   } catch (error) {
     console.error("❌ Cleanup safe zones error:", error);
@@ -526,18 +468,6 @@ router.get("/safe-zones-info/:petId", auth, async (req, res) => {
 
     const totalZones = pet.safeZones.length;
     const activeZones = pet.safeZones.filter((z) => z.isActive).length;
-    const inactiveZones = totalZones - activeZones;
-
-    // Get unique locations count
-    const uniqueLocations = new Set();
-    pet.safeZones.forEach((zone) => {
-      if (zone.center) {
-        const key = `${zone.center.lat.toFixed(6)},${zone.center.lng.toFixed(
-          6
-        )}`;
-        uniqueLocations.add(key);
-      }
-    });
 
     res.json({
       success: true,
@@ -546,30 +476,11 @@ router.get("/safe-zones-info/:petId", auth, async (req, res) => {
       zonesInfo: {
         total: totalZones,
         active: activeZones,
-        inactive: inactiveZones,
-        uniqueLocations: uniqueLocations.size,
         recommendation:
-          totalZones > 10
-            ? `⚠️ Có quá nhiều safe zones (${totalZones}). Nên dọn dẹp.`
-            : "✅ Số lượng safe zones hợp lý.",
+          totalZones > 1
+            ? `⚠️ Có ${totalZones} safe zones. Nên giữ 1 zone để config nhỏ.`
+            : "✅ Chỉ có 1 safe zone - tốt cho config nhỏ.",
       },
-      zonesSample: pet.safeZones
-        .sort(
-          (a, b) =>
-            new Date(b.createdAt || b._id.getTimestamp()) -
-            new Date(a.createdAt || a._id.getTimestamp())
-        )
-        .slice(0, 5)
-        .map((z) => ({
-          id: z._id,
-          name: z.name,
-          radius: z.radius,
-          isActive: z.isActive,
-          location: z.center
-            ? `${z.center.lat.toFixed(6)}, ${z.center.lng.toFixed(6)}`
-            : null,
-          createdAt: z.createdAt || z._id.getTimestamp(),
-        })),
     });
   } catch (error) {
     console.error("❌ Get safe zones info error:", error);

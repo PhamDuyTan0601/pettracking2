@@ -173,7 +173,7 @@ class MQTTService {
       console.log(`📍 Location saved for ${deviceId} → ${device.petId.name}`);
 
       console.log(
-        `⚙️ AUTO-SENDING CONFIG to ${deviceId} (triggered by location)`
+        `⚙️ AUTO-SENDING MINIMAL CONFIG to ${deviceId} (triggered by location)`
       );
 
       await this.sendConfigToDevice(deviceId);
@@ -182,7 +182,7 @@ class MQTTService {
       device.lastConfigSent = new Date();
       await device.save();
 
-      console.log(`✅ Config sent to ${deviceId} successfully`);
+      console.log(`✅ Minimal config sent to ${deviceId} successfully`);
     } catch (error) {
       console.error("❌ Error saving location data:", error);
     }
@@ -250,7 +250,7 @@ class MQTTService {
         return;
       }
 
-      console.log(`⚙️ Sending config to ${deviceId} as requested`);
+      console.log(`⚙️ Sending MINIMAL config to ${deviceId} as requested`);
       await this.sendConfigToDevice(deviceId);
 
       device.configSent = true;
@@ -277,16 +277,16 @@ class MQTTService {
     }
   }
 
-  // 🚨 FIXED: HÀM GỬI CONFIG - GIỚI HẠN 5 SAFE ZONES
+  // 🚨 FIXED: HÀM GỬI MINIMAL CONFIG (< 200 bytes)
   async sendConfigToDevice(deviceId) {
     try {
-      console.log(`⚙️ Preparing config for device: ${deviceId}`);
+      console.log(`⚙️ Preparing MINIMAL config for device: ${deviceId}`);
 
       const device = await Device.findOne({
         deviceId,
         isActive: true,
       })
-        .populate("petId", "name species breed safeZones")
+        .populate("petId", "name safeZones")
         .populate("owner", "name phone");
 
       if (!device) {
@@ -304,82 +304,62 @@ class MQTTService {
         return;
       }
 
-      // 🚨 GIỚI HẠN CHỈ 5 SAFE ZONES MỚI NHẤT
-      let safeZonesInfo = [];
-      const MAX_ZONES_FOR_ESP32 = 5;
+      // 🚨 MINIMAL CONFIG - DƯỚI 200 BYTES
+      const config = {
+        s: 1, // success
+        d: device.deviceId, // deviceId
+        p: device.petId._id.toString(), // petId
+        n: device.petId.name, // petName
+        ph: device.owner.phone, // phoneNumber
+        o: device.owner.name || "Owner", // ownerName
+      };
 
+      // 🚨 CHỈ THÊM ZONE NẾU CÓ VÀ CỰC NGẮN (max 1 zone)
       if (device.petId.safeZones && device.petId.safeZones.length > 0) {
         const activeZones = device.petId.safeZones.filter(
           (zone) => zone.isActive
         );
 
-        // SORT BY CREATION DATE (NEWEST FIRST)
-        const sortedZones = activeZones.sort((a, b) => {
-          const dateA = a.createdAt || a._id.getTimestamp();
-          const dateB = b.createdAt || b._id.getTimestamp();
-          return new Date(dateB) - new Date(dateA);
-        });
+        if (activeZones.length > 0) {
+          // Chỉ lấy 1 zone đầu tiên
+          const zone = activeZones[0];
 
-        // GIỚI HẠN CHỈ 5 ZONES
-        const limitedZones = sortedZones.slice(0, MAX_ZONES_FOR_ESP32);
-
-        if (limitedZones.length > 0) {
-          safeZonesInfo = limitedZones.map((zone) => ({
-            center: {
-              lat: zone.center.lat,
-              lng: zone.center.lng,
+          config.z = {
+            // zone (not safeZone để ngắn hơn)
+            c: {
+              // center
+              a: parseFloat(zone.center.lat.toFixed(6)), // lat (rounded)
+              b: parseFloat(zone.center.lng.toFixed(6)), // lng (rounded)
             },
-            radius: zone.radius || 100,
-            name: zone.name || "Safe Zone",
-            isActive: true,
-            _id: zone._id.toString(),
-            priority: 1,
-          }));
+            r: Math.round(zone.radius) || 100, // radius (rounded)
+            n: (zone.name || "Home").substring(0, 8), // name (max 8 chars)
+            a: 1, // active
+          };
         }
       }
 
-      const totalZonesInDB = device.petId.safeZones?.length || 0;
-      const activeZonesCount =
-        device.petId.safeZones?.filter((z) => z.isActive).length || 0;
+      // Check size
+      const jsonStr = JSON.stringify(config);
+      console.log(`📏 Config size: ${jsonStr.length} bytes`);
 
-      console.log(
-        `📍 Found ${safeZonesInfo.length} safe zones for ${deviceId} (out of ${activeZonesCount} active, ${totalZonesInDB} total)`
-      );
+      if (jsonStr.length > 200) {
+        console.warn(
+          `⚠️ Config too large: ${jsonStr.length} bytes, removing zone`
+        );
+        delete config.z;
 
-      const config = {
-        success: true,
-        _source: "server",
-        deviceId: device.deviceId,
-        petId: device.petId._id.toString(),
-        petName: device.petId.name,
-        phoneNumber: device.owner.phone,
-        ownerName: device.owner.name,
-
-        configSentAt: device.lastConfigSent
-          ? device.lastConfigSent.toISOString()
-          : new Date().toISOString(),
-      };
-
-      if (safeZonesInfo.length > 0) {
-        config.safeZones = safeZonesInfo;
-        safeZonesInfo.forEach((zone, index) => {
-          console.log(`   Zone ${index + 1}: ${zone.name} (${zone.radius}m)`);
-        });
+        const newSize = JSON.stringify(config).length;
+        console.log(`📏 New size after removing zone: ${newSize} bytes`);
       }
 
-      // Thêm warning nếu có quá nhiều zones
-      if (totalZonesInDB > MAX_ZONES_FOR_ESP32) {
-        config.warning = `Only ${MAX_ZONES_FOR_ESP32} most recent zones shown (${totalZonesInDB} total)`;
-      }
-
-      console.log(`✅ Config prepared for ${deviceId}:`);
-      console.log(`   Pet: ${config.petName}`);
-      console.log(`   Phone: ${config.phoneNumber}`);
-      console.log(`   Safe Zones: ${safeZonesInfo.length}`);
+      console.log(`✅ Minimal config prepared for ${deviceId}:`);
+      console.log(`   Pet: ${config.n}`);
+      console.log(`   Phone: ${config.ph}`);
+      console.log(`   Has Zone: ${!!config.z}`);
 
       this.publishConfig(deviceId, config);
     } catch (error) {
-      console.error("❌ Error sending config:", error);
+      console.error("❌ Error sending minimal config:", error);
     }
   }
 
@@ -391,56 +371,25 @@ class MQTTService {
 
     const topic = `pets/${deviceId}/config`;
 
-    console.log(`\n📤 PUBLISHING CONFIG:`);
+    console.log(`\n📤 PUBLISHING MINIMAL CONFIG:`);
     console.log(`   Topic: ${topic}`);
-    console.log(`   Device: ${config.deviceId}`);
-    console.log(`   Pet: ${config.petName}`);
-    console.log(`   Safe Zones: ${config.safeZones?.length || 0}`);
+    console.log(`   Device: ${config.d}`);
+    console.log(`   Pet: ${config.n}`);
     console.log(`   Size: ${JSON.stringify(config).length} bytes`);
 
-    // 🚨 KIỂM TRA KÍCH THƯỚC MESSAGE
-    const messageSize = JSON.stringify(config).length;
-    if (messageSize > 5000) {
-      // 5KB limit
-      console.warn(`⚠️ Config message is large: ${messageSize} bytes`);
-
-      // Nếu quá lớn, chỉ gửi essential data
-      const minimalConfig = {
-        success: config.success,
-        deviceId: config.deviceId,
-        petId: config.petId,
-        phoneNumber: config.phoneNumber,
-        safeZones: config.safeZones || [],
-        warning: "Minimal config due to size constraints",
-      };
-
-      this.client.publish(
-        topic,
-        JSON.stringify(minimalConfig),
-        { qos: 1, retain: true },
-        (err) => {
-          if (err) {
-            console.error(`❌ Failed to publish minimal config:`, err);
-          } else {
-            console.log(`✅ Minimal config published to: ${topic}`);
-          }
+    this.client.publish(
+      topic,
+      JSON.stringify(config),
+      { qos: 1, retain: true },
+      (err) => {
+        if (err) {
+          console.error(`❌ Failed to publish minimal config:`, err);
+        } else {
+          console.log(`✅ Minimal config published to: ${topic}`);
+          console.log(`   Retained: YES`);
         }
-      );
-    } else {
-      this.client.publish(
-        topic,
-        JSON.stringify(config),
-        { qos: 1, retain: true },
-        (err) => {
-          if (err) {
-            console.error(`❌ Failed to publish config:`, err);
-          } else {
-            console.log(`✅ Config published to: ${topic}`);
-            console.log(`   Retained: YES`);
-          }
-        }
-      );
-    }
+      }
+    );
   }
 
   async clearRetainedMessages(deviceId) {
@@ -474,7 +423,7 @@ class MQTTService {
   }
 
   async manualPublishConfig(deviceId) {
-    console.log(`🔧 Manual config publish for: ${deviceId}`);
+    console.log(`🔧 Manual minimal config publish for: ${deviceId}`);
     await this.sendConfigToDevice(deviceId);
   }
 }
