@@ -3,10 +3,10 @@ const Pet = require("../models/pet");
 const auth = require("../middleware/authMiddleware");
 const router = express.Router();
 
-// 🚨 THÊM DÒNG NÀY ĐỂ IMPORT MQTT SERVICE
+// IMPORT MQTT SERVICE
 const mqttService = require("../mqttSubscriber");
 
-// 🛡️ Thêm vùng an toàn cho pet
+// Thêm vùng an toàn cho pet
 router.post("/:petId/safe-zones", auth, async (req, res) => {
   try {
     const { petId } = req.params;
@@ -55,15 +55,9 @@ router.post("/:petId/safe-zones", auth, async (req, res) => {
     pet.safeZones.push(newSafeZone);
     await pet.save();
 
-    console.log(
-      "✅ Added safe zone for pet:",
-      pet.name,
-      "radius:",
-      radius,
-      "m"
-    );
+    console.log("Added safe zone for pet:", pet.name, "radius:", radius, "m");
 
-    // 🚨 AUTO SEND CONFIG KHI THÊM SAFE ZONE MỚI
+    // AUTO SEND CONFIG KHI THÊM SAFE ZONE MỚI
     try {
       const Device = require("../models/device");
       const device = await Device.findOne({
@@ -73,14 +67,14 @@ router.post("/:petId/safe-zones", auth, async (req, res) => {
 
       if (device) {
         console.log(
-          `⚙️ Auto-sending config to ${device.deviceId} after adding safe zone`
+          `Auto-sending config to ${device.deviceId} after adding safe zone`
         );
         setTimeout(() => {
           mqttService.manualPublishConfig(device.deviceId);
         }, 1000);
       }
     } catch (mqttError) {
-      console.error("❌ MQTT auto-config error:", mqttError);
+      console.error("MQTT auto-config error:", mqttError);
     }
 
     res.json({
@@ -93,7 +87,7 @@ router.post("/:petId/safe-zones", auth, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Add safe zone error:", error);
+    console.error("Add safe zone error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -101,7 +95,7 @@ router.post("/:petId/safe-zones", auth, async (req, res) => {
   }
 });
 
-// 🛡️ Lấy danh sách safe zones của pet
+// Lấy danh sách safe zones của pet
 router.get("/:petId/safe-zones", auth, async (req, res) => {
   try {
     const { petId } = req.params;
@@ -123,7 +117,7 @@ router.get("/:petId/safe-zones", auth, async (req, res) => {
       petName: pet.name,
     });
   } catch (error) {
-    console.error("❌ Get safe zones error:", error);
+    console.error("Get safe zones error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -131,7 +125,7 @@ router.get("/:petId/safe-zones", auth, async (req, res) => {
   }
 });
 
-// 🛡️ Cập nhật safe zone
+// Cập nhật safe zone
 router.put("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
   try {
     const { petId, zoneId } = req.params;
@@ -170,7 +164,7 @@ router.put("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
 
     await pet.save();
 
-    // 🚨 AUTO SEND CONFIG KHI CẬP NHẬT SAFE ZONE
+    // AUTO SEND CONFIG KHI CẬP NHẬT SAFE ZONE
     try {
       const Device = require("../models/device");
       const device = await Device.findOne({
@@ -180,14 +174,14 @@ router.put("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
 
       if (device) {
         console.log(
-          `⚙️ Auto-sending config to ${device.deviceId} after safe zone update`
+          `Auto-sending config to ${device.deviceId} after safe zone update`
         );
         setTimeout(() => {
           mqttService.manualPublishConfig(device.deviceId);
         }, 1000);
       }
     } catch (mqttError) {
-      console.error("❌ MQTT auto-config error:", mqttError);
+      console.error("MQTT auto-config error:", mqttError);
     }
 
     res.json({
@@ -196,7 +190,7 @@ router.put("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
       safeZone: pet.safeZones[zoneIndex],
     });
   } catch (error) {
-    console.error("❌ Update safe zone error:", error);
+    console.error("Update safe zone error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -204,7 +198,7 @@ router.put("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
   }
 });
 
-// 🛡️ Kích hoạt/deactivate safe zone
+// Kích hoạt/deactivate safe zone
 router.patch("/:petId/safe-zones/:zoneId/toggle", auth, async (req, res) => {
   try {
     const { petId, zoneId } = req.params;
@@ -232,7 +226,7 @@ router.patch("/:petId/safe-zones/:zoneId/toggle", auth, async (req, res) => {
     pet.safeZones[zoneIndex].isActive = !pet.safeZones[zoneIndex].isActive;
     await pet.save();
 
-    // 🚨 AUTO SEND CONFIG KHI TOGGLE SAFE ZONE
+    // AUTO SEND CONFIG KHI TOGGLE SAFE ZONE
     try {
       const Device = require("../models/device");
       const device = await Device.findOne({
@@ -242,14 +236,14 @@ router.patch("/:petId/safe-zones/:zoneId/toggle", auth, async (req, res) => {
 
       if (device) {
         console.log(
-          `⚙️ Auto-sending config to ${device.deviceId} after safe zone toggle`
+          `Auto-sending config to ${device.deviceId} after safe zone toggle`
         );
         setTimeout(() => {
           mqttService.manualPublishConfig(device.deviceId);
         }, 1000);
       }
     } catch (mqttError) {
-      console.error("❌ MQTT auto-config error:", mqttError);
+      console.error("MQTT auto-config error:", mqttError);
     }
 
     res.json({
@@ -260,7 +254,7 @@ router.patch("/:petId/safe-zones/:zoneId/toggle", auth, async (req, res) => {
       safeZone: pet.safeZones[zoneIndex],
     });
   } catch (error) {
-    console.error("❌ Toggle safe zone error:", error);
+    console.error("Toggle safe zone error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -268,7 +262,7 @@ router.patch("/:petId/safe-zones/:zoneId/toggle", auth, async (req, res) => {
   }
 });
 
-// 🛡️ Xóa safe zone
+// Xóa safe zone
 router.delete("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
   try {
     const { petId, zoneId } = req.params;
@@ -298,14 +292,9 @@ router.delete("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
 
     await pet.save();
 
-    console.log(
-      "🗑️ Deleted safe zone:",
-      zoneToDelete.name,
-      "from pet:",
-      pet.name
-    );
+    console.log("Deleted safe zone:", zoneToDelete.name, "from pet:", pet.name);
 
-    // 🚨 AUTO SEND CONFIG KHI XÓA SAFE ZONE
+    // AUTO SEND CONFIG KHI XÓA SAFE ZONE
     try {
       const Device = require("../models/device");
       const device = await Device.findOne({
@@ -315,14 +304,14 @@ router.delete("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
 
       if (device) {
         console.log(
-          `⚙️ Auto-sending config to ${device.deviceId} after safe zone deletion`
+          `Auto-sending config to ${device.deviceId} after safe zone deletion`
         );
         setTimeout(() => {
           mqttService.manualPublishConfig(device.deviceId);
         }, 1000);
       }
     } catch (mqttError) {
-      console.error("❌ MQTT auto-config error:", mqttError);
+      console.error("MQTT auto-config error:", mqttError);
     }
 
     res.json({
@@ -330,7 +319,7 @@ router.delete("/:petId/safe-zones/:zoneId", auth, async (req, res) => {
       message: "Safe zone deleted successfully",
     });
   } catch (error) {
-    console.error("❌ Delete safe zone error:", error);
+    console.error("Delete safe zone error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",

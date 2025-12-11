@@ -2,11 +2,11 @@ const express = require("express");
 const { body, validationResult } = require("express-validator");
 const PetData = require("../models/petData");
 const Pet = require("../models/pet");
-const auth = require("../middleware/authMiddleware"); // THÊM DÒNG NÀY
+const auth = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-// Submit pet data from ESP32 (public access) - GIU NGUYEN
+// Submit pet data from ESP32 (public access)
 router.post(
   "/",
   [
@@ -45,7 +45,7 @@ router.post(
   }
 );
 
-// Get pet data - CHI OWNER MOI DUOC XEM
+// Get pet data
 router.get("/pet/:petId", auth, async (req, res) => {
   try {
     const { petId } = req.params;
@@ -93,7 +93,7 @@ router.get("/pet/:petId", auth, async (req, res) => {
   }
 });
 
-// Get latest pet data - CHI OWNER MOI DUOC XEM
+// CHI OWNER MOI DUOC XEM
 router.get("/pet/:petId/latest", auth, async (req, res) => {
   try {
     const { petId } = req.params;
@@ -127,10 +127,7 @@ router.get("/pet/:petId/latest", auth, async (req, res) => {
   }
 });
 
-// Cac route con lai cung them auth tuong tu...
-// Get activity summary, statistics, timeline... deu them auth
-
-// Get all pet data (for debugging) - XOA HOAC THEM PHAN QUYEN
+//  XOA HOAC THEM PHAN QUYEN
 router.get("/", auth, async (req, res) => {
   try {
     // CHI HIEN THI PET DATA CUA PET MA USER SO HUU

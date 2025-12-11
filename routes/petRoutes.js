@@ -5,7 +5,7 @@ const auth = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-// 🐾 Get all pets for current user
+//  Get all pets for current user
 router.get("/my-pets", auth, async (req, res) => {
   try {
     const pets = await Pet.find({ owner: req.user._id });
@@ -15,7 +15,7 @@ router.get("/my-pets", auth, async (req, res) => {
   }
 });
 
-// 🐾 Get single pet (only owner can view)
+// Get single pet (only owner can view)
 router.get("/:id", auth, async (req, res) => {
   try {
     const pet = await Pet.findById(req.params.id);
@@ -30,7 +30,7 @@ router.get("/:id", auth, async (req, res) => {
   }
 });
 
-// 🐾 Create new pet (auto assign owner)
+// Create new pet
 router.post(
   "/",
   auth,
@@ -59,7 +59,7 @@ router.post(
   }
 );
 
-// 🐾 DELETE pet - THÊM ENDPOINT NÀY
+// DELETE pet
 router.delete("/:id", auth, async (req, res) => {
   try {
     const pet = await Pet.findById(req.params.id);

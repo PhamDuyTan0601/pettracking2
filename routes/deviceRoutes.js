@@ -8,13 +8,13 @@ const mqttService = require("../mqttSubscriber");
 const router = express.Router();
 
 // ==============================
-// 🔧 Đăng ký device với pet
+//  Đăng ký device với pet
 // ==============================
 router.post("/register", auth, async (req, res) => {
   try {
     const { deviceId, petId } = req.body;
 
-    console.log("📱 Device registration:", { deviceId, petId });
+    console.log(" Device registration:", { deviceId, petId });
 
     const pet = await Pet.findOne({ _id: petId, owner: req.user._id });
     if (!pet) {
@@ -37,7 +37,7 @@ router.post("/register", auth, async (req, res) => {
       { upsert: true, new: true }
     );
 
-    console.log("✅ Device registered:", deviceId, "for pet:", pet.name);
+    console.log("Device registered:", deviceId, "for pet:", pet.name);
 
     setTimeout(async () => {
       await mqttService.manualPublishConfig(deviceId);
@@ -53,7 +53,7 @@ router.post("/register", auth, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Device registration error:", error);
+    console.error("Device registration error:", error);
     res.status(500).json({
       success: false,
       message: "Server error during device registration",
@@ -62,7 +62,7 @@ router.post("/register", auth, async (req, res) => {
 });
 
 // ==============================
-// 📍 Lấy petId từ deviceId (cho ESP32)
+// Lấy petId từ deviceId (cho ESP32)
 // ==============================
 router.get("/pet/:deviceId", async (req, res) => {
   try {
@@ -76,14 +76,14 @@ router.get("/pet/:deviceId", async (req, res) => {
     }).populate("petId", "name");
 
     if (!device) {
-      console.log("❌ Device not found or not activated:", deviceId);
+      console.log("Device not found or not activated:", deviceId);
       return res.status(404).json({
         success: false,
         message: "Device not registered or not active",
       });
     }
 
-    console.log("✅ Found pet for device:", device.petId.name);
+    console.log("Found pet for device:", device.petId.name);
 
     res.json({
       success: true,
@@ -92,7 +92,7 @@ router.get("/pet/:deviceId", async (req, res) => {
       petName: device.petId.name,
     });
   } catch (error) {
-    console.error("❌ Device lookup error:", error);
+    console.error("Device lookup error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -101,7 +101,7 @@ router.get("/pet/:deviceId", async (req, res) => {
 });
 
 // ==============================
-// 📋 Lấy danh sách devices của user
+// Lấy danh sách devices của user
 // ==============================
 router.get("/my-devices", auth, async (req, res) => {
   try {
@@ -115,7 +115,7 @@ router.get("/my-devices", auth, async (req, res) => {
       devices,
     });
   } catch (error) {
-    console.error("❌ Get devices error:", error);
+    console.error("Get devices error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -161,7 +161,7 @@ router.get("/test/:deviceId", async (req, res) => {
         : "Device not found - please register first",
     });
   } catch (error) {
-    console.error("❌ Test endpoint error:", error);
+    console.error("Test endpoint error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -170,14 +170,13 @@ router.get("/test/:deviceId", async (req, res) => {
   }
 });
 
-// ==============================
-// 🆕 ENDPOINT: ESP32 lấy thông tin cấu hình
-// ==============================
+// ENDPOINT: ESP32 lấy thông tin cấu hình
+
 router.get("/config/:deviceId", async (req, res) => {
   try {
     let { deviceId } = req.params;
 
-    console.log("🔧 ESP32 requesting config for device:", deviceId);
+    console.log(" ESP32 requesting config for device:", deviceId);
 
     const device = await Device.findOne({
       deviceId: deviceId,
@@ -187,7 +186,7 @@ router.get("/config/:deviceId", async (req, res) => {
       .populate("owner", "name phone");
 
     if (!device) {
-      console.log("❌ Device not found or not active:", deviceId);
+      console.log(" Device not found or not active:", deviceId);
       return res.status(404).json({
         success: false,
         message: "Device not registered or not active",
@@ -198,7 +197,7 @@ router.get("/config/:deviceId", async (req, res) => {
 
     return buildConfigResponse(res, device);
   } catch (error) {
-    console.error("❌ Get config error:", error);
+    console.error(" Get config error:", error);
     res.status(500).json({
       success: false,
       message: "Server error while fetching device config",
@@ -220,24 +219,24 @@ function buildConfigResponse(res, device) {
       throw new Error("Owner phone number is required");
     }
 
-    // 🚨 FIXED: GIỚI HẠN CHỈ 5 SAFE ZONES MỚI NHẤT
+    //  GIỚI HẠN CHỈ 5 SAFE ZONES MỚI NHẤT
     let safeZonesInfo = [];
-    const MAX_ZONES_FOR_ESP32 = 5; // 🚨 GIỚI HẠN QUAN TRỌNG
+    const MAX_ZONES_FOR_ESP32 = 5;
 
     if (device.petId.safeZones && device.petId.safeZones.length > 0) {
-      // Lấy TẤT CẢ safe zones đang active
+      //Lấy TẤT CẢ safe zones đang active
       const activeZones = device.petId.safeZones.filter(
         (zone) => zone.isActive
       );
 
-      // 🚨 SORT BY CREATION DATE (NEWEST FIRST)
+      //  SORT BY CREATION DATE (NEWEST FIRST)
       const sortedZones = activeZones.sort((a, b) => {
         const dateA = a.createdAt || a._id.getTimestamp();
         const dateB = b.createdAt || b._id.getTimestamp();
         return new Date(dateB) - new Date(dateA);
       });
 
-      // 🚨 GIỚI HẠN CHỈ 5 ZONES MỚI NHẤT
+      //  GIỚI HẠN CHỈ 5 ZONES MỚI NHẤT
       const limitedZones = sortedZones.slice(0, MAX_ZONES_FOR_ESP32);
 
       if (limitedZones.length > 0) {
@@ -253,7 +252,7 @@ function buildConfigResponse(res, device) {
     const activeZonesCount =
       device.petId.safeZones?.filter((z) => z.isActive).length || 0;
 
-    console.log("✅ Sending config to ESP32:", {
+    console.log("Sending config to ESP32:", {
       deviceId: device.deviceId,
       petName: device.petId.name,
       ownerPhone: device.owner.phone,
@@ -262,7 +261,7 @@ function buildConfigResponse(res, device) {
       totalZonesInDB: totalZonesInDB,
     });
 
-    // 🚨 MINIMAL CONFIG - CHỈ CÁC TRƯỜNG ESP32 CẦN
+    //  CHỈ CÁC TRƯỜNG ESP32 CẦN
     const response = {
       success: true,
       petId: device.petId._id.toString(),
@@ -283,7 +282,7 @@ function buildConfigResponse(res, device) {
 
     res.json(response);
   } catch (error) {
-    console.error("❌ Error building config response:", error);
+    console.error("Error building config response:", error);
     res.status(400).json({
       success: false,
       message: error.message || "Failed to build configuration",
@@ -292,14 +291,13 @@ function buildConfigResponse(res, device) {
   }
 }
 
-// ==============================
-// 🆕 PUBLISH CONFIG TO DEVICE VIA MQTT
-// ==============================
+//  PUBLISH CONFIG TO DEVICE VIA MQTT
+
 router.post("/config/publish/:deviceId", auth, async (req, res) => {
   try {
     let { deviceId } = req.params;
 
-    console.log("📤 Publishing config to device via MQTT:", deviceId);
+    console.log("Publishing config to device via MQTT:", deviceId);
 
     const device = await Device.findOne({
       deviceId,
@@ -322,7 +320,7 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
     device.lastConfigSent = new Date();
     await device.save();
 
-    console.log("✅ Config published to:", deviceId);
+    console.log("Config published to:", deviceId);
 
     res.json({
       success: true,
@@ -331,7 +329,7 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("❌ Publish config error:", error);
+    console.error("Publish config error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -339,9 +337,8 @@ router.post("/config/publish/:deviceId", auth, async (req, res) => {
   }
 });
 
-// ==============================
-// 🆕 ENDPOINT: TRIGGER CONFIG SEND NGAY LẬP TỨC (No auth - for ESP32)
-// ==============================
+//  ENDPOINT: TRIGGER CONFIG SEND NGAY LẬP TỨC (No auth - for ESP32)
+
 router.post("/trigger-config/:deviceId", async (req, res) => {
   try {
     const { deviceId } = req.params;
@@ -366,7 +363,7 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
     device.lastConfigSent = new Date();
     await device.save();
 
-    console.log("✅ Config triggered for:", deviceId);
+    console.log("Config triggered for:", deviceId);
 
     res.json({
       success: true,
@@ -375,7 +372,7 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("❌ Trigger config error:", error);
+    console.error("Trigger config error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -383,16 +380,15 @@ router.post("/trigger-config/:deviceId", async (req, res) => {
   }
 });
 
-// ==============================
-// 🆕 ENDPOINT: CLEAN UP EXCESS SAFE ZONES 🧹
-// ==============================
+// ENDPOINT: CLEAN UP EXCESS SAFE ZONES
+
 router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
   try {
     const { petId } = req.params;
     const { keepCount = 5 } = req.body;
 
     console.log(
-      `🧹 Cleaning up safe zones for pet ${petId}, keeping ${keepCount} most recent`
+      `Cleaning up safe zones for pet ${petId}, keeping ${keepCount} most recent`
     );
 
     const pet = await Pet.findOne({ _id: petId, owner: req.user._id });
@@ -430,7 +426,7 @@ router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
     await pet.save();
 
     console.log(
-      `✅ Cleaned up ${zonesToDelete.length} old safe zones from pet ${pet.name}`
+      `Cleaned up ${zonesToDelete.length} old safe zones from pet ${pet.name}`
     );
 
     // Trigger config update for associated devices
@@ -439,9 +435,7 @@ router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
       devices.forEach((device) => {
         setTimeout(() => {
           mqttService.manualPublishConfig(device.deviceId);
-          console.log(
-            `⚙️ Auto-sent config to ${device.deviceId} after cleanup`
-          );
+          console.log(`Auto-sent config to ${device.deviceId} after cleanup`);
         }, 1000);
       });
     } catch (mqttError) {
@@ -464,7 +458,7 @@ router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("❌ Cleanup safe zones error:", error);
+    console.error("Cleanup safe zones error:", error);
     res.status(500).json({
       success: false,
       message: "Server error during cleanup",
@@ -473,9 +467,8 @@ router.post("/cleanup-safe-zones/:petId", auth, async (req, res) => {
   }
 });
 
-// ==============================
-// 🆕 ENDPOINT: Get safe zones count info
-// ==============================
+//  ENDPOINT: Get safe zones count info
+
 router.get("/safe-zones-info/:petId", auth, async (req, res) => {
   try {
     const { petId } = req.params;
@@ -517,8 +510,8 @@ router.get("/safe-zones-info/:petId", auth, async (req, res) => {
         uniqueLocations: uniqueLocations.size,
         recommendation:
           totalZones > 10
-            ? `⚠️ Có quá nhiều safe zones (${totalZones}). Nên dọn dẹp.`
-            : "✅ Số lượng safe zones hợp lý.",
+            ? `Có quá nhiều safe zones (${totalZones}). Nên dọn dẹp.`
+            : "Số lượng safe zones hợp lý.",
       },
       zonesSample: pet.safeZones
         .sort(
@@ -539,7 +532,7 @@ router.get("/safe-zones-info/:petId", auth, async (req, res) => {
         })),
     });
   } catch (error) {
-    console.error("❌ Get safe zones info error:", error);
+    console.error("Get safe zones info error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -547,14 +540,13 @@ router.get("/safe-zones-info/:petId", auth, async (req, res) => {
   }
 });
 
-// ==============================
-// 🆕 ENDPOINT: CLEAR RETAINED MESSAGES
-// ==============================
+//  ENDPOINT: CLEAR RETAINED MESSAGES
+
 router.post("/clear-retained/:deviceId", auth, async (req, res) => {
   try {
     const { deviceId } = req.params;
 
-    console.log("🧹 Clearing retained messages for:", deviceId);
+    console.log(" Clearing retained messages for:", deviceId);
 
     const device = await Device.findOne({
       deviceId,
@@ -576,7 +568,7 @@ router.post("/clear-retained/:deviceId", auth, async (req, res) => {
       deviceId: deviceId,
     });
   } catch (error) {
-    console.error("❌ Clear retained error:", error);
+    console.error(" Clear retained error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -584,9 +576,8 @@ router.post("/clear-retained/:deviceId", auth, async (req, res) => {
   }
 });
 
-// ==============================
-// 🆕 ENDPOINT: Get device status
-// ==============================
+//  ENDPOINT: Get device status
+
 router.get("/status/:deviceId", auth, async (req, res) => {
   try {
     const { deviceId } = req.params;
@@ -624,7 +615,7 @@ router.get("/status/:deviceId", auth, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("❌ Get device status error:", error);
+    console.error("Get device status error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -632,9 +623,8 @@ router.get("/status/:deviceId", auth, async (req, res) => {
   }
 });
 
-// ==============================
-// 🆕 ENDPOINT: List all devices (debug)
-// ==============================
+//  ENDPOINT: List all devices (debug)
+
 router.get("/list/devices", auth, async (req, res) => {
   try {
     const devices = await Device.find({ isActive: true })
@@ -659,7 +649,7 @@ router.get("/list/devices", auth, async (req, res) => {
       })),
     });
   } catch (error) {
-    console.error("❌ List devices error:", error);
+    console.error("List devices error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",

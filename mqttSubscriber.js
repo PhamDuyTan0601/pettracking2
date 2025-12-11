@@ -47,13 +47,13 @@ class MQTTService {
 
       this.setupEventHandlers();
     } catch (error) {
-      console.error("❌ MQTT Connection failed:", error);
+      console.error("MQTT Connection failed:", error);
     }
   }
 
   setupEventHandlers() {
     this.client.on("connect", () => {
-      console.log("✅ Connected to EMQX Cloud Broker!");
+      console.log("Connected to EMQX Cloud Broker!");
       this.isConnected = true;
       this.subscribeToTopics();
     });
@@ -61,7 +61,7 @@ class MQTTService {
     this.client.on("message", this.handleMessage.bind(this));
 
     this.client.on("error", (error) => {
-      console.error("❌ MQTT Error:", error);
+      console.error("MQTT Error:", error);
       this.isConnected = false;
     });
 
@@ -71,11 +71,11 @@ class MQTTService {
     });
 
     this.client.on("reconnect", () => {
-      console.log("🔄 MQTT Reconnecting...");
+      console.log("MQTT Reconnecting...");
     });
 
     this.client.on("offline", () => {
-      console.log("📴 MQTT Offline");
+      console.log("MQTT Offline");
       this.isConnected = false;
     });
   }
@@ -85,21 +85,21 @@ class MQTTService {
     topics.forEach((topic) => {
       this.client.subscribe(topic, { qos: 1 }, (err) => {
         if (err) {
-          console.error(`❌ Failed to subscribe to ${topic}:`, err);
+          console.error(`Failed to subscribe to ${topic}:`, err);
         } else {
-          console.log(`✅ Subscribed to: ${topic}`);
+          console.log(`Subscribed to: ${topic}`);
         }
       });
     });
 
-    console.log("ℹ️  Server will PUBLISH to: pets/+/config (not subscribe)");
+    console.log("Server will PUBLISH to: pets/+/config (not subscribe)");
   }
 
   async handleMessage(topic, message) {
     try {
       const payload = JSON.parse(message.toString());
       console.log(
-        `📨 MQTT Message [${topic}]:`,
+        ` MQTT Message [${topic}]:`,
         JSON.stringify(payload, null, 2)
       );
 
@@ -110,13 +110,13 @@ class MQTTService {
           payload.type === "config_request" ||
           payload.configRequest === true
         ) {
-          console.log(`⚙️ Config request from ${deviceId}`);
+          console.log(`Config request from ${deviceId}`);
           await this.handleConfigRequest(deviceId, payload);
           return;
         }
 
         if (payload.retained === true && payload.message === "RETAINED_TEST") {
-          console.log(`📝 Ignoring old retained test message from ${deviceId}`);
+          console.log(`Ignoring old retained test message from ${deviceId}`);
           return;
         }
       }
@@ -138,20 +138,20 @@ class MQTTService {
           break;
 
         default:
-          console.log("📝 Unknown topic (ignoring):", topic);
+          console.log("Unknown topic (ignoring):", topic);
       }
     } catch (error) {
-      console.error("❌ Error processing MQTT message:", error);
+      console.error("Error processing MQTT message:", error);
     }
   }
 
   async handleLocationData(deviceId, data) {
     try {
-      console.log(`📍 Processing location for device: ${deviceId}`);
+      console.log(`Processing location for device: ${deviceId}`);
 
       const device = await Device.findOne({ deviceId }).populate("petId");
       if (!device) {
-        console.log(`❌ Device not found: ${deviceId}`);
+        console.log(`Device not found: ${deviceId}`);
         return;
       }
 
@@ -170,11 +170,9 @@ class MQTTService {
       device.lastSeen = new Date();
       await device.save();
 
-      console.log(`📍 Location saved for ${deviceId} → ${device.petId.name}`);
+      console.log(`Location saved for ${deviceId} → ${device.petId.name}`);
 
-      console.log(
-        `⚙️ AUTO-SENDING CONFIG to ${deviceId} (triggered by location)`
-      );
+      console.log(`AUTO-SENDING CONFIG to ${deviceId} (triggered by location)`);
 
       await this.sendConfigToDevice(deviceId);
 
@@ -182,19 +180,19 @@ class MQTTService {
       device.lastConfigSent = new Date();
       await device.save();
 
-      console.log(`✅ Config sent to ${deviceId} successfully`);
+      console.log(`Config sent to ${deviceId} successfully`);
     } catch (error) {
-      console.error("❌ Error saving location data:", error);
+      console.error("Error saving location data:", error);
     }
   }
 
   async handleStatusUpdate(deviceId, data) {
     try {
-      console.log(`🔋 Processing status for device: ${deviceId}`);
+      console.log(`Processing status for device: ${deviceId}`);
 
       const device = await Device.findOne({ deviceId });
       if (!device) {
-        console.log(`❌ Device not found in status update: ${deviceId}`);
+        console.log(`Device not found in status update: ${deviceId}`);
         return;
       }
 
@@ -212,14 +210,14 @@ class MQTTService {
 
       await Device.findOneAndUpdate({ deviceId }, updateData);
 
-      console.log(`🔋 Status updated for ${deviceId}`);
+      console.log(`Status updated for ${deviceId}`);
 
       if (
         data.needConfig === true ||
         data.configReceived === false ||
         !device.configSent
       ) {
-        console.log(`⚙️ Device ${deviceId} needs config (from status message)`);
+        console.log(`Device ${deviceId} needs config (from status message)`);
 
         setTimeout(async () => {
           await this.sendConfigToDevice(deviceId);
@@ -230,13 +228,13 @@ class MQTTService {
         }, 1000);
       }
     } catch (error) {
-      console.error("❌ Error updating device status:", error);
+      console.error("Error updating device status:", error);
     }
   }
 
   async handleConfigRequest(deviceId, data) {
     try {
-      console.log(`⚙️ Config request from ${deviceId}:`, data);
+      console.log(`Config request from ${deviceId}:`, data);
 
       const device = await Device.findOne({
         deviceId,
@@ -246,41 +244,41 @@ class MQTTService {
         .populate("owner", "name phone");
 
       if (!device) {
-        console.log(`❌ Device not found or inactive: ${deviceId}`);
+        console.log(`Device not found or inactive: ${deviceId}`);
         return;
       }
 
-      console.log(`⚙️ Sending config to ${deviceId} as requested`);
+      console.log(`Sending config to ${deviceId} as requested`);
       await this.sendConfigToDevice(deviceId);
 
       device.configSent = true;
       device.lastConfigSent = new Date();
       await device.save();
     } catch (error) {
-      console.error("❌ Error handling config request:", error);
+      console.error("Error handling config request:", error);
     }
   }
 
   async handleAlert(deviceId, data) {
     try {
-      console.log(`🚨 ALERT from ${deviceId}:`, data);
+      console.log(`ALERT from ${deviceId}:`, data);
 
       const device = await Device.findOne({ deviceId })
         .populate("petId", "name")
         .populate("owner", "name phone");
 
       if (device && device.owner && device.owner.phone) {
-        console.log(`📱 Would send SMS alert to: ${device.owner.phone}`);
+        console.log(`Would send SMS alert to: ${device.owner.phone}`);
       }
     } catch (error) {
-      console.error("❌ Error handling alert:", error);
+      console.error("Error handling alert:", error);
     }
   }
 
-  // 🚨 FIXED: HÀM GỬI CONFIG - GIỚI HẠN 5 SAFE ZONES VÀ MINIMAL CONFIG
+  //   GIỚI HẠN 5 SAFE ZONES VÀ MINIMAL CONFIG
   async sendConfigToDevice(deviceId) {
     try {
-      console.log(`⚙️ Preparing config for device: ${deviceId}`);
+      console.log(` Preparing config for device: ${deviceId}`);
 
       const device = await Device.findOne({
         deviceId,
@@ -290,21 +288,21 @@ class MQTTService {
         .populate("owner", "name phone");
 
       if (!device) {
-        console.log(`❌ Device not found: ${deviceId}`);
+        console.log(`Device not found: ${deviceId}`);
         return;
       }
 
       if (!device.petId) {
-        console.log(`❌ Pet not found for device: ${deviceId}`);
+        console.log(`Pet not found for device: ${deviceId}`);
         return;
       }
 
       if (!device.owner || !device.owner.phone) {
-        console.log(`❌ Owner or phone not found for device: ${deviceId}`);
+        console.log(`Owner or phone not found for device: ${deviceId}`);
         return;
       }
 
-      // 🚨 GIỚI HẠN CHỈ 5 SAFE ZONES MỚI NHẤT
+      //  GIỚI HẠN CHỈ 5 SAFE ZONES MỚI NHẤT
       let safeZonesInfo = [];
       const MAX_ZONES_FOR_ESP32 = 5;
 
@@ -337,10 +335,10 @@ class MQTTService {
         device.petId.safeZones?.filter((z) => z.isActive).length || 0;
 
       console.log(
-        `📍 Found ${safeZonesInfo.length} safe zones for ${deviceId} (out of ${activeZonesCount} active, ${totalZonesInDB} total)`
+        `Found ${safeZonesInfo.length} safe zones for ${deviceId} (out of ${activeZonesCount} active, ${totalZonesInDB} total)`
       );
 
-      // 🚨 MINIMAL CONFIG - CHỈ CÁC TRƯỜNG ESP32 CẦN
+      // MINIMAL CONFIG - CHỈ CÁC TRƯỜNG ESP32 CẦN
       const config = {
         success: true,
         petId: device.petId._id.toString(),
@@ -362,37 +360,37 @@ class MQTTService {
         config.warning = `Only ${MAX_ZONES_FOR_ESP32} most recent zones shown (${totalZonesInDB} total)`;
       }
 
-      console.log(`✅ Config prepared for ${deviceId}:`);
+      console.log(`Config prepared for ${deviceId}:`);
       console.log(`   Pet: ${config.petName}`);
       console.log(`   Phone: ${config.phoneNumber}`);
       console.log(`   Safe Zones: ${safeZonesInfo.length}`);
 
       this.publishConfig(deviceId, config);
     } catch (error) {
-      console.error("❌ Error sending config:", error);
+      console.error("Error sending config:", error);
     }
   }
 
   publishConfig(deviceId, config) {
     if (!this.isConnected) {
-      console.log("❌ MQTT not connected, cannot publish");
+      console.log("MQTT not connected, cannot publish");
       return;
     }
 
     const topic = `pets/${deviceId}/config`;
 
-    console.log(`\n📤 PUBLISHING CONFIG:`);
+    console.log(`\nPUBLISHING CONFIG:`);
     console.log(`   Topic: ${topic}`);
     console.log(`   Device: ${deviceId}`);
     console.log(`   Pet: ${config.petName}`);
     console.log(`   Safe Zones: ${config.safeZones?.length || 0}`);
     console.log(`   Size: ${JSON.stringify(config).length} bytes`);
 
-    // 🚨 KIỂM TRA KÍCH THƯỚC MESSAGE
+    //  KIỂM TRA KÍCH THƯỚC MESSAGE
     const messageSize = JSON.stringify(config).length;
     if (messageSize > 5000) {
       // 5KB limit
-      console.warn(`⚠️ Config message is large: ${messageSize} bytes`);
+      console.warn(`Config message is large: ${messageSize} bytes`);
 
       // Nếu quá lớn, chỉ gửi essential data
       const minimalConfig = {
@@ -408,9 +406,9 @@ class MQTTService {
         { qos: 1, retain: true },
         (err) => {
           if (err) {
-            console.error(`❌ Failed to publish minimal config:`, err);
+            console.error(`Failed to publish minimal config:`, err);
           } else {
-            console.log(`✅ Minimal config published to: ${topic}`);
+            console.log(`Minimal config published to: ${topic}`);
           }
         }
       );
@@ -421,9 +419,9 @@ class MQTTService {
         { qos: 1, retain: true },
         (err) => {
           if (err) {
-            console.error(`❌ Failed to publish config:`, err);
+            console.error(`Failed to publish config:`, err);
           } else {
-            console.log(`✅ Config published to: ${topic}`);
+            console.log(`Config published to: ${topic}`);
             console.log(`   Retained: YES`);
           }
         }
@@ -433,7 +431,7 @@ class MQTTService {
 
   async clearRetainedMessages(deviceId) {
     if (!this.isConnected) {
-      console.log("❌ MQTT not connected");
+      console.log("MQTT not connected");
       return;
     }
 
@@ -444,14 +442,14 @@ class MQTTService {
       `pets/${deviceId}/alert`,
     ];
 
-    console.log(`🧹 Clearing retained messages for ${deviceId}...`);
+    console.log(`Clearing retained messages for ${deviceId}...`);
 
     topics.forEach((topic) => {
       this.client.publish(topic, "", { retain: true, qos: 1 }, (err) => {
         if (err) {
-          console.log(`   ❌ Failed to clear ${topic}:`, err.message);
+          console.log(`  Failed to clear ${topic}:`, err.message);
         } else {
-          console.log(`   ✅ Cleared retained message from ${topic}`);
+          console.log(`  Cleared retained message from ${topic}`);
         }
       });
     });
@@ -462,7 +460,7 @@ class MQTTService {
   }
 
   async manualPublishConfig(deviceId) {
-    console.log(`🔧 Manual config publish for: ${deviceId}`);
+    console.log(`Manual config publish for: ${deviceId}`);
     await this.sendConfigToDevice(deviceId);
   }
 }

@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
     },
     phone: {
-      // ✅ ĐÃ SỬA: phone thay vì phoneNumber và thêm required
+      //  ĐÃ SỬA: phone thay vì phoneNumber và thêm required
       type: String,
       required: true,
       unique: true,
@@ -40,7 +40,7 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// ✅ Hash password tự động trước khi lưu
+// Hash password tự động trước khi lưu
 userSchema.pre("save", async function (next) {
   if (this.isModified("password")) {
     this.password = await bcrypt.hash(this.password, 10);
@@ -48,7 +48,7 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-// ✅ So sánh mật khẩu khi đăng nhập
+//  So sánh mật khẩu khi đăng nhập
 userSchema.methods.comparePassword = async function (password) {
   return await bcrypt.compare(password, this.password);
 };

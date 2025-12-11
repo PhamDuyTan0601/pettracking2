@@ -280,7 +280,7 @@ petSchema.statics.findWithAutoCreatedSafeZones = function () {
   });
 };
 
-// 🔥 THÊM STATIC METHOD MỚI: Tìm pets có quá nhiều safe zones
+//  Tìm pets có quá nhiều safe zones
 petSchema.statics.findWithTooManySafeZones = function (threshold = 10) {
   return this.aggregate([
     {
@@ -304,14 +304,14 @@ petSchema.statics.findWithTooManySafeZones = function (threshold = 10) {
         owner: 1,
         safeZonesCount: 1,
         safeZones: {
-          $slice: ["$safeZones", 5], // Chỉ lấy 5 safe zones đầu tiên để xem
+          $slice: ["$safeZones", 5],
         },
       },
     },
   ]);
 };
 
-// 🔥 THÊM STATIC METHOD MỚI: Dọn dẹp safe zones cho tất cả pets
+//  Dọn dẹp safe zones cho tất cả pets
 petSchema.statics.cleanupAllPetsSafeZones = async function (keepCount = 5) {
   try {
     const pets = await this.find({
@@ -355,7 +355,7 @@ petSchema.pre("save", function (next) {
   next();
 });
 
-// 🚨 QUAN TRỌNG: MIDDLEWARE ĐẢM BẢO CHỈ CÓ 1 SAFE ZONE CHÍNH
+//  MIDDLEWARE ĐẢM BẢO CHỈ CÓ 1 SAFE ZONE CHÍNH
 petSchema.pre("save", function (next) {
   if (this.safeZones && this.safeZones.length > 0) {
     // Đếm số safe zone được đánh dấu là chính
@@ -384,7 +384,7 @@ petSchema.pre("save", function (next) {
   next();
 });
 
-// 🚨 QUAN TRỌNG: MIDDLEWARE GIỚI HẠN SỐ LƯỢNG SAFE ZONES
+// MIDDLEWARE GIỚI HẠN SỐ LƯỢNG SAFE ZONES
 petSchema.pre("save", function (next) {
   const MAX_SAFE_ZONES = 30; // Giới hạn cao hơn để không mất data đột ngột
   const WARNING_THRESHOLD = 10; // Ngưỡng cảnh báo
@@ -404,7 +404,7 @@ petSchema.pre("save", function (next) {
     this.safeZones = zonesToKeep;
 
     console.warn(
-      `⚠️ Auto-trimmed safe zones for pet ${this.name} from ${
+      `Auto-trimmed safe zones for pet ${this.name} from ${
         zonesToDelete.length + zonesToKeep.length
       } to ${MAX_SAFE_ZONES}`
     );
@@ -425,27 +425,27 @@ petSchema.pre("save", function (next) {
   // Cảnh báo nếu có quá nhiều safe zones (nhưng vẫn cho phép)
   if (this.safeZones && this.safeZones.length > WARNING_THRESHOLD) {
     console.warn(
-      `⚠️ Pet ${this.name} has ${this.safeZones.length} safe zones (threshold: ${WARNING_THRESHOLD})`
+      `Pet ${this.name} has ${this.safeZones.length} safe zones (threshold: ${WARNING_THRESHOLD})`
     );
   }
 
   next();
 });
 
-// 🚨 THÊM MIDDLEWARE: Validate radius của safe zone
+//  Validate radius của safe zone
 petSchema.pre("save", function (next) {
   if (this.safeZones) {
     for (const zone of this.safeZones) {
       if (zone.radius < 10) {
         zone.radius = 10; // Tự động sửa nếu radius quá nhỏ
         console.warn(
-          `⚠️ Fixed safe zone radius for ${this.name}: ${zone.radius} -> 10m`
+          `Fixed safe zone radius for ${this.name}: ${zone.radius} -> 10m`
         );
       }
       if (zone.radius > 5000) {
         zone.radius = 5000; // Tự động sửa nếu radius quá lớn
         console.warn(
-          `⚠️ Fixed safe zone radius for ${this.name}: ${zone.radius} -> 5000m`
+          `Fixed safe zone radius for ${this.name}: ${zone.radius} -> 5000m`
         );
       }
     }

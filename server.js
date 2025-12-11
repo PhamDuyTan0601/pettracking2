@@ -8,9 +8,6 @@ const mqttService = require("./mqttSubscriber");
 
 const app = express();
 
-// ================================
-// ✅ CORS CONFIG
-// ================================
 app.use(
   cors({
     origin: [
@@ -27,20 +24,20 @@ app.use(
 
 app.use(express.json({ limit: "10mb" })); // Tăng limit cho request lớn
 
-// ================================
-// 🔗 ROUTES
-// ================================
+
+//  ROUTES
+
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/pets", require("./routes/petRoutes"));
 app.use("/api/pets", require("./routes/safeZoneRoutes"));
 app.use("/api/petData", require("./routes/petDataRoutes"));
 app.use("/api/devices", require("./routes/deviceRoutes"));
 
-console.log("✅ All routes loaded successfully");
+console.log("All routes loaded successfully");
 
-// ================================
-// 💓 HEALTH CHECK
-// ================================
+
+//  HEALTH CHECK
+
 app.get("/", (req, res) => {
   res.json({
     message: "Pet Tracker API is running!",
@@ -80,9 +77,9 @@ app.get("/health", (req, res) => {
   });
 });
 
-// ================================
-// 🔧 DEBUG ENDPOINTS (ĐÃ CẬP NHẬT)
-// ================================
+
+//  DEBUG ENDPOINTS
+
 app.get("/debug/mqtt-status", (req, res) => {
   res.json({
     mqttConnected: mqttService.getConnectionStatus(),
@@ -301,7 +298,7 @@ app.get("/debug/test-mqtt/:deviceId", async (req, res) => {
   }
 });
 
-// 🧹 Debug cleanup endpoint
+// Debug cleanup endpoint
 app.get("/debug/cleanup-pet/:petId", async (req, res) => {
   try {
     const { petId } = req.params;
@@ -340,7 +337,7 @@ app.get("/debug/cleanup-pet/:petId", async (req, res) => {
         setTimeout(() => {
           mqttService.manualPublishConfig(device.deviceId);
           console.log(
-            `⚙️ Auto-sent config to ${device.deviceId} after debug cleanup`
+            `Auto-sent config to ${device.deviceId} after debug cleanup`
           );
         }, 1000);
       });
@@ -375,7 +372,7 @@ app.get("/debug/cleanup-pet/:petId", async (req, res) => {
   }
 });
 
-// 📊 Debug safe zones stats
+// Debug safe zones stats
 app.get("/debug/safe-zones-stats", async (req, res) => {
   try {
     const Pet = require("./models/pet");
@@ -427,7 +424,7 @@ app.get("/debug/safe-zones-stats", async (req, res) => {
   }
 });
 
-// 🚨 EMERGENCY CLEANUP FOR ALL PETS
+// EMERGENCY CLEANUP FOR ALL PETS
 app.get("/debug/emergency-cleanup-all", async (req, res) => {
   try {
     const Pet = require("./models/pet");
@@ -447,9 +444,9 @@ app.get("/debug/emergency-cleanup-all", async (req, res) => {
   }
 });
 
-// ================================
-// 🧠 DATABASE CONNECTION
-// ================================
+
+//  DATABASE CONNECTION
+
 const connectDB = async () => {
   try {
     if (!process.env.MONGO_URI) {
@@ -462,8 +459,8 @@ const connectDB = async () => {
     // Khởi động MQTT Service sau khi DB connected
     mqttService.connect();
   } catch (error) {
-    console.log("❌ MongoDB Connection Error:", error.message);
-    console.log("⚠️  Server continuing without MongoDB...");
+    console.log(" MongoDB Connection Error:", error.message);
+    console.log(" Server continuing without MongoDB...");
   }
 };
 
@@ -482,9 +479,9 @@ mongoose.connection.on("reconnected", () => {
 
 connectDB();
 
-// ================================
-// 🚨 ERROR HANDLER MIDDLEWARE (Global)
-// ================================
+
+// ERROR HANDLER MIDDLEWARE (Global)
+
 app.use((err, req, res, next) => {
   console.error(err.stack);
 
@@ -499,26 +496,26 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ================================
-// 🚀 START SERVER
-// ================================
+
+//  START SERVER
+
 const PORT = process.env.PORT || 10000;
 
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`
-  🚀 PET TRACKER SERVER STARTED
-  ==========================================
-  🌐 HTTP Server: http://0.0.0.0:${PORT}
-  📡 Server URL: ${
+   PET TRACKER SERVER STARTED
+  
+  HTTP Server: http://0.0.0.0:${PORT}
+  Server URL: ${
     process.env.SERVER_URL || "https://pettracking2.onrender.com"
   }
   
   `);
 });
 
-// ================================
-// 🚨 GRACEFUL SHUTDOWN - FIXED VERSION
-// ================================
+
+//  GRACEFUL SHUTDOWN - FIXED VERSION
+
 
 const gracefulShutdown = async (signal) => {
   console.log(`🛑 ${signal} received, shutting down gracefully...`);
@@ -527,25 +524,25 @@ const gracefulShutdown = async (signal) => {
     // 1. Đóng MQTT connection
     if (mqttService.client) {
       mqttService.client.end();
-      console.log("✅ MQTT connection closed");
+      console.log(" MQTT connection closed");
     }
 
     // 2. Đóng HTTP server (ngừng nhận request mới)
     server.close(() => {
-      console.log("✅ HTTP Server closed");
+      console.log(" HTTP Server closed");
     });
 
     // 3. Đóng MongoDB connection (KHÔNG DÙNG CALLBACK)
     if (mongoose.connection.readyState === 1) {
       await mongoose.connection.close();
-      console.log("✅ MongoDB connection closed");
+      console.log(" MongoDB connection closed");
     }
 
     // 4. Thoát process thành công
-    console.log("✅ Graceful shutdown completed");
+    console.log("Graceful shutdown completed");
     process.exit(0);
   } catch (error) {
-    console.error("❌ Error during graceful shutdown:", error);
+    console.error(" Error during graceful shutdown:", error);
     process.exit(1);
   }
 };
@@ -556,12 +553,12 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Handle uncaught exceptions
 process.on("uncaughtException", (err) => {
-  console.error("💥 UNCAUGHT EXCEPTION:", err);
+  console.error(" UNCAUGHT EXCEPTION:", err);
   gracefulShutdown("uncaughtException");
 });
 
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("💥 UNHANDLED REJECTION at:", promise, "reason:", reason);
+  console.error("UNHANDLED REJECTION at:", promise, "reason:", reason);
 });
 
 module.exports = app;
