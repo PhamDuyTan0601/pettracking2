@@ -516,36 +516,52 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   `);
 });
 
-// Graceful shutdown
-process.on("SIGTERM", () => {
-  console.log("🛑 SIGTERM received, shutting down gracefully");
+// ================================
+// 🚨 GRACEFUL SHUTDOWN - FIXED VERSION
+// ================================
 
-  // Close MQTT connection
-  if (mqttService.client) {
-    mqttService.client.end();
-  }
+const gracefulShutdown = async (signal) => {
+  console.log(`🛑 ${signal} received, shutting down gracefully...`);
 
-  server.close(() => {
-    console.log("✅ Server closed");
-    mongoose.connection.close(false, () => {
-      console.log("✅ MongoDB connection closed");
-      process.exit(0);
+  try {
+    // 1. Đóng MQTT connection
+    if (mqttService.client) {
+      mqttService.client.end();
+      console.log("✅ MQTT connection closed");
+    }
+
+    // 2. Đóng HTTP server (ngừng nhận request mới)
+    server.close(() => {
+      console.log("✅ HTTP Server closed");
     });
-  });
+
+    // 3. Đóng MongoDB connection (KHÔNG DÙNG CALLBACK)
+    if (mongoose.connection.readyState === 1) {
+      await mongoose.connection.close();
+      console.log("✅ MongoDB connection closed");
+    }
+
+    // 4. Thoát process thành công
+    console.log("✅ Graceful shutdown completed");
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ Error during graceful shutdown:", error);
+    process.exit(1);
+  }
+};
+
+// Handle process signals
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+// Handle uncaught exceptions
+process.on("uncaughtException", (err) => {
+  console.error("💥 UNCAUGHT EXCEPTION:", err);
+  gracefulShutdown("uncaughtException");
 });
 
-process.on("SIGINT", () => {
-  console.log("🛑 SIGINT received, shutting down");
-
-  if (mqttService.client) {
-    mqttService.client.end();
-  }
-
-  server.close(() => {
-    mongoose.connection.close(false, () => {
-      process.exit(0);
-    });
-  });
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("💥 UNHANDLED REJECTION at:", promise, "reason:", reason);
 });
 
 module.exports = app;
