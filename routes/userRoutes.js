@@ -8,9 +8,6 @@ const auth = require("../middleware/authMiddleware");
 const router = express.Router();
 const SECRET_KEY = process.env.JWT_SECRET || "mysecretkey";
 
-// ==============================
-//  Register user - ĐÃ CẬP NHẬT ĐỂ HỖ TRỢ PHONE
-// ==============================
 router.post(
   "/register",
   [
@@ -60,7 +57,7 @@ router.post(
           id: user._id,
           name: user.name,
           email: user.email,
-          phone: user.phone, 
+          phone: user.phone,
         },
       });
     } catch (error) {
@@ -73,9 +70,6 @@ router.post(
     }
   }
 );
-
-
-
 
 router.post(
   "/login",
@@ -92,7 +86,6 @@ router.post(
 
       const { email, password } = req.body;
 
-      
       const user = await User.findOne({
         $or: [
           { email: email },
@@ -127,7 +120,7 @@ router.post(
           id: user._id,
           name: user.name,
           email: user.email,
-          phone: user.phone, 
+          phone: user.phone,
         },
       });
     } catch (error) {
@@ -140,8 +133,7 @@ router.post(
   }
 );
 
-
-//  Update profile 
+//  Update profile
 
 router.put(
   "/profile",
@@ -194,7 +186,6 @@ router.put(
     }
   }
 );
-
 
 //Get current user profile
 

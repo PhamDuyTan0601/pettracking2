@@ -11,7 +11,6 @@ const petDataSchema = new mongoose.Schema(
     timestamp: {
       type: Date,
       default: Date.now,
-      // đã bỏ index: true để tránh duplicate
     },
     location: {
       type: {

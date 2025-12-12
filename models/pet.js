@@ -12,8 +12,8 @@ const petSchema = new mongoose.Schema(
       type: String,
       required: [true, "Species is required"],
       enum: {
-        values: ["dog", "cat", "bird", "rabbit", "other"],
-        message: "Species must be dog, cat, bird, rabbit, or other",
+        values: ["dog", "cat", "rabbit", "other"],
+        message: "Species must be dog, cat, rabbit, or other",
       },
     },
     breed: {
@@ -145,17 +145,17 @@ petSchema.virtual("hasAutoCreatedSafeZone").get(function () {
   return this.safeZones && this.safeZones.some((zone) => zone.autoCreated);
 });
 
-// 🔥 THÊM VIRTUAL MỚI: Số lượng safe zones
+// Số lượng safe zones
 petSchema.virtual("safeZonesCount").get(function () {
   return this.safeZones ? this.safeZones.length : 0;
 });
 
-// 🔥 THÊM VIRTUAL MỚI: Số lượng safe zones active
+//  Số lượng safe zones active
 petSchema.virtual("activeSafeZonesCount").get(function () {
   return this.safeZones ? this.safeZones.filter((z) => z.isActive).length : 0;
 });
 
-// 🔥 THÊM VIRTUAL MỚI: Có quá nhiều safe zones không
+//  Có quá nhiều safe zones không
 petSchema.virtual("hasTooManySafeZones").get(function () {
   const MAX_SAFE_ZONES = 20;
   return this.safeZonesCount > MAX_SAFE_ZONES;

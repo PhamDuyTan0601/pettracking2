@@ -15,7 +15,6 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
     },
     phone: {
-      //  ĐÃ SỬA: phone thay vì phoneNumber và thêm required
       type: String,
       required: true,
       unique: true,

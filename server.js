@@ -12,7 +12,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:3000",
-      "https://pet-mu-seven.vercel.app",
+      "https://trackingsytem.vercel.app",
       "https://pettracking88.vercel.app",
       "*",
     ],
@@ -24,7 +24,6 @@ app.use(
 
 app.use(express.json({ limit: "10mb" })); // Tăng limit cho request lớn
 
-
 //  ROUTES
 
 app.use("/api/users", require("./routes/userRoutes"));
@@ -34,7 +33,6 @@ app.use("/api/petData", require("./routes/petDataRoutes"));
 app.use("/api/devices", require("./routes/deviceRoutes"));
 
 console.log("All routes loaded successfully");
-
 
 //  HEALTH CHECK
 
@@ -76,7 +74,6 @@ app.get("/health", (req, res) => {
     env: process.env.NODE_ENV || "development",
   });
 });
-
 
 //  DEBUG ENDPOINTS
 
@@ -444,7 +441,6 @@ app.get("/debug/emergency-cleanup-all", async (req, res) => {
   }
 });
 
-
 //  DATABASE CONNECTION
 
 const connectDB = async () => {
@@ -479,7 +475,6 @@ mongoose.connection.on("reconnected", () => {
 
 connectDB();
 
-
 // ERROR HANDLER MIDDLEWARE (Global)
 
 app.use((err, req, res, next) => {
@@ -496,7 +491,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-
 //  START SERVER
 
 const PORT = process.env.PORT || 10000;
@@ -506,16 +500,12 @@ const server = app.listen(PORT, "0.0.0.0", () => {
    PET TRACKER SERVER STARTED
   
   HTTP Server: http://0.0.0.0:${PORT}
-  Server URL: ${
-    process.env.SERVER_URL || "https://pettracking2.onrender.com"
-  }
+  Server URL: ${process.env.SERVER_URL || "https://pettracking2.onrender.com"}
   
   `);
 });
 
-
 //  GRACEFUL SHUTDOWN - FIXED VERSION
-
 
 const gracefulShutdown = async (signal) => {
   console.log(`🛑 ${signal} received, shutting down gracefully...`);
